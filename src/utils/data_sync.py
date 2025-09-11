@@ -20,6 +20,7 @@ class DataSyncManager:
         
         logger.info("Data sync manager initialized")
 
+
     def sync_new_bills_from_netsuite(self, last_sync_date: Optional[datetime] = None) -> List[Bill]:
         """Fetch only new bills from NetSuite since last sync"""
         try:
@@ -154,8 +155,12 @@ class DataSyncManager:
                 try:
                     po_line = future.result()
                     if po_line:
-                        po_lines[po_key] = po_line
-                        logger.debug(f"Fetched PO line details: {po_key}")
+                        # Filter out PO lines with USD remaining balance below $5,000 threshold
+                        if po_line.remaining_balance_usd >= AppConfig.MIN_ACCRUAL_AMOUNT_USD:
+                            po_lines[po_key] = po_line
+                            logger.debug(f"Fetched PO line details: {po_key} (${po_line.remaining_balance_usd:,.2f} USD)")
+                        else:
+                            logger.debug(f"Filtered out PO line {po_key}: remaining balance ${po_line.remaining_balance_usd:,.2f} USD < ${AppConfig.MIN_ACCRUAL_AMOUNT_USD:,.2f} USD threshold")
                     else:
                         logger.warning(f"No PO line data found for: {po_key}")
                         

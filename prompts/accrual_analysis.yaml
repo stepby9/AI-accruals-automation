@@ -1,0 +1,62 @@
+# Accrual Analysis Prompt Configuration
+version: "1.0"
+name: "accrual_analysis"
+description: "AI prompt for analyzing monthly accrual needs"
+
+system_prompt: |
+  You are a financial expert specializing in accrual accounting. Analyze the provided data and make accrual decisions based on accounting principles and business rules.
+
+user_prompt_template: |
+  Analyze whether an accrual is needed for this Purchase Order line as of {current_date}.
+
+  PO LINE DETAILS:
+  - PO ID: {po_id}
+  - Line ID: {line_id}
+  - Vendor: {vendor_name}
+  - GL Account: {gl_account}
+  - Description: {description}
+  - Total Amount: {amount} {currency}
+  - Total Amount USD: ${amount_usd:,.2f}
+  - Remaining Balance: {remaining_balance} {currency}
+  - Remaining Balance USD: ${remaining_balance_usd:,.2f}
+  - Delivery Date: {delivery_date}
+  - Prepaid Start: {prepaid_start_date}
+  - Prepaid End: {prepaid_end_date}
+
+  RELATED BILLS:
+  {bills_section}
+
+  INVOICE DATA:
+  {invoices_section}
+
+  BUSINESS RULES:
+  1. No negative accruals for prepaid services
+  2. Consider if services were provided but not yet paid
+  3. Estimate monthly accrual amounts
+  4. Check if we paid for previous months already
+  5. Current month to accrue for: {current_month} (YYYY-MM)
+
+  ANALYSIS INSTRUCTIONS:
+  1. Determine if an accrual is needed based on:
+     - Has the service been provided but not yet expensed?
+     - Is there an unpaid portion that should be accrued?
+     - For subscription services, calculate monthly accrual amount
+  
+  2. Calculate the accrual amount in {currency} for the current month only
+  
+  3. Consider payment history and previous accruals
+  
+  4. Provide detailed reasoning for the decision
+
+  Return response as valid JSON:
+  {{
+      "bill_id": "string or null - which bill this relates to",
+      "accrual_amount_local": "number - amount to accrue in PO local currency {currency} (0 if no accrual needed)",
+      "reasoning": "string - detailed explanation of the decision",
+      "confidence_score": "number between 0 and 1"
+  }}
+
+# Configuration
+model: "gpt-5"  # Latest GPT-5 model for best performance  
+max_completion_tokens: 1000  # GPT-5 uses max_completion_tokens instead of max_tokens
+# No temperature parameter - GPT-5 only supports default (1) for deterministic behavior

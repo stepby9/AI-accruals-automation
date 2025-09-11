@@ -26,10 +26,12 @@ class POLine:
     gl_account: str
     description: str
     amount: float
+    amount_usd: float
     delivery_date: Optional[datetime]
     prepaid_start_date: Optional[datetime]
     prepaid_end_date: Optional[datetime]
     remaining_balance: float
+    remaining_balance_usd: float
 
 @dataclass
 class Bill:
@@ -131,10 +133,12 @@ class NetSuiteClient:
                         gl_account=line.get('account', {}).get('name', ''),
                         description=line.get('description', ''),
                         amount=float(line.get('amount', 0)),
+                        amount_usd=float(line.get('amount_usd', line.get('amount', 0))),  # NetSuite should provide USD amount
                         delivery_date=self._parse_date(line.get('expectedreceiptdate')),
                         prepaid_start_date=self._parse_date(line.get('custcol_prepaid_start')),
                         prepaid_end_date=self._parse_date(line.get('custcol_prepaid_end')),
-                        remaining_balance=float(line.get('quantityremaining', 0)) * float(line.get('rate', 0))
+                        remaining_balance=float(line.get('quantityremaining', 0)) * float(line.get('rate', 0)),
+                        remaining_balance_usd=float(line.get('quantityremaining_usd', 0)) * float(line.get('rate_usd', line.get('rate', 0)))  # NetSuite USD values
                     )
             
             logger.warning(f"Line {line_id} not found in PO {po_id}")

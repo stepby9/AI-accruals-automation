@@ -88,6 +88,7 @@ class DatabaseManager:
                         po_id VARCHAR(50),
                         line_id VARCHAR(50),
                         bill_id VARCHAR(50),
+                        accrual_amount_local DECIMAL(15,2),
                         accrual_amount_usd DECIMAL(15,2),
                         reasoning TEXT,
                         confidence_score DECIMAL(3,2),
@@ -277,11 +278,11 @@ class DatabaseManager:
                 
                 cursor.execute("""
                     INSERT INTO accrual_decisions (
-                        id, po_id, line_id, bill_id, accrual_amount_usd,
+                        id, po_id, line_id, bill_id, accrual_amount_local, accrual_amount_usd,
                         reasoning, confidence_score, created_at, gl_account,
                         vendor_name, remaining_balance, currency
                     ) VALUES (
-                        %(id)s, %(po_id)s, %(line_id)s, %(bill_id)s, %(accrual_amount_usd)s,
+                        %(id)s, %(po_id)s, %(line_id)s, %(bill_id)s, %(accrual_amount_local)s, %(accrual_amount_usd)s,
                         %(reasoning)s, %(confidence_score)s, %(created_at)s, %(gl_account)s,
                         %(vendor_name)s, %(remaining_balance)s, %(currency)s
                     )
@@ -290,6 +291,7 @@ class DatabaseManager:
                     'po_id': decision.po_id,
                     'line_id': decision.line_id,
                     'bill_id': decision.bill_id,
+                    'accrual_amount_local': decision.accrual_amount_local,
                     'accrual_amount_usd': decision.accrual_amount_usd,
                     'reasoning': decision.reasoning,
                     'confidence_score': decision.confidence_score,

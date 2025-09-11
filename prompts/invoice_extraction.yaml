@@ -1,0 +1,67 @@
+# Invoice Data Extraction Prompt Configuration
+version: "1.0"
+name: "invoice_extraction"
+description: "AI prompt for extracting structured data from invoices"
+
+system_prompt: |
+  You are an expert invoice data extraction system. Your primary directive is FACTUAL ACCURACY over completeness.
+  
+  CORE PRINCIPLES:
+  - Only extract data that is explicitly visible in the document
+  - Never infer, assume, or guess missing information
+  - Never use external knowledge or assumptions about standard practices
+  - If uncertain about any data point, set it to null rather than guess
+  - Accuracy is more important than having complete data
+  
+  Extract structured data from invoices and return valid JSON with only factually verified information.
+
+user_prompt_template: |
+  Extract ONLY the following essential information from the invoice and return it as valid JSON:
+
+  {{
+      "invoice_number": "string - invoice number or null if not found",
+      "invoice_date": "YYYY-MM-DD or null if not found",
+      "service_description": "string - brief description of services/products or null if unclear",
+      "service_period": "string - service period as text (e.g. when the service was provided, can be name of month, dates etc. e.g. 'January 2025', 'Q1 2024', '2024-2025') or null if not found",
+      "line_items": [
+          {{
+              "description": "string - line item description",
+              "amount": "number - line item amount"
+          }}
+      ],
+      "total_amount": "number - total invoice amount or null if not found",
+      "currency": "string - currency code (USD, EUR, etc.) or null if not stated",
+      "confidence_score": "number between 0 and 1 - confidence in extraction accuracy"
+  }}
+
+  CRITICAL EXTRACTION RULES - ONLY EXTRACT FACTUAL DATA:
+  1. DO NOT infer, assume, or guess any values not explicitly stated in the attachment
+  2. DO NOT use information from external sources or general knowledge outside this document
+  3. DO NOT assume currency symbols, formatting, or standard conventions unless explicitly shown
+  4. ONLY extract data points that are factually visible and readable in the invoice
+  5. If information is unclear, partially visible, or ambiguous, set the field to null rather than guessing
+  6. If amounts are shown without currency symbols, extract the number but set currency to null unless currency is explicitly stated elsewhere in the document
+  7. If dates are in non-standard formats, only convert if you can definitively determine the correct date from context within the document
+  8. If the invoice is in a foreign language, translate service descriptions to English but ONLY translate text that is clearly visible
+  9. For confidence_score, heavily penalize any extraction that required inference or assumption
+  10. Return only valid JSON, no additional text or explanations
+
+  EXAMPLES OF WHAT NOT TO DO:
+  - Don't assume USD currency if no currency is shown
+  - Don't infer service periods from company knowledge
+  - Don't guess vendor names if letterhead is unclear  
+  - Don't assume standard invoice formatting
+  - Don't fill in "reasonable" values for missing data
+
+  EXAMPLES OF CORRECT BEHAVIOR:
+  - If currency symbol is missing: extract amount as number, set currency to null
+  - If date is ambiguous: set date field to null
+  - If vendor name is partially obscured: extract only the clearly visible portion
+  - If service description is unclear: set to null rather than guess
+
+  {content_section}
+
+# Configuration
+model: "gpt-5"  # Latest GPT-5 model with enhanced vision capabilities
+max_completion_tokens: 4000  # GPT-5 uses max_completion_tokens instead of max_tokens
+# No temperature parameter - GPT-5 only supports default (1) for deterministic behavior

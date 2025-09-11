@@ -4,7 +4,7 @@ import mimetypes
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, date
 import json
 import fitz  # PyMuPDF
 from PIL import Image
@@ -12,22 +12,20 @@ import io
 
 from config.settings import OpenAIConfig
 from src.utils.logger import setup_logger
+from src.utils.prompt_manager import get_system_prompt, get_user_prompt, get_model_config
 
 logger = setup_logger(__name__)
 
 @dataclass
 class InvoiceData:
     bill_id: str
-    vendor_name: str
-    invoice_number: str
-    invoice_date: Optional[datetime]
-    service_description: str
-    service_period_start: Optional[datetime]
-    service_period_end: Optional[datetime]
-    line_items: List[Dict[str, Any]]
-    total_amount: float
-    currency: str
-    language: str
+    invoice_number: Optional[str]
+    invoice_date: Optional[date]  # Use date instead of datetime
+    service_description: Optional[str]
+    service_period: Optional[str]  # Text format like "January 2025", "Q1 2024"
+    line_items_summary: Optional[str]  # Concatenated line items with amounts
+    total_amount: Optional[float]
+    currency: Optional[str]
     confidence_score: float
     extracted_at: datetime
     file_path: str
@@ -37,7 +35,9 @@ class InvoiceProcessor:
         if not OpenAIConfig.API_KEY:
             raise ValueError("OpenAI API key not configured")
         
-        openai.api_key = OpenAIConfig.API_KEY
+        # Create OpenAI client the correct way for v1.x
+        from openai import OpenAI
+        self.client = OpenAI(api_key=OpenAIConfig.API_KEY)
         self.model = OpenAIConfig.MODEL
         self.max_tokens = OpenAIConfig.MAX_TOKENS
         
@@ -165,17 +165,23 @@ class InvoiceProcessor:
     def _analyze_with_openai(self, text_content: str, image_data: bytes, 
                            file_path: str, bill_id: str) -> Optional[InvoiceData]:
         try:
-            prompt = self._get_analysis_prompt()
+            # Prepare template variables
+            template_vars = {'content_section': ''}
+            
+            # Get prompts and model config from prompt manager
+            system_prompt = get_system_prompt("invoice_extraction")
+            user_prompt = get_user_prompt("invoice_extraction", **template_vars)
+            model_config = get_model_config("invoice_extraction")
             
             messages = [
                 {
                     "role": "system",
-                    "content": "You are an expert invoice data extraction system. Extract structured data from invoices and return valid JSON."
+                    "content": system_prompt
                 },
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": prompt}
+                        {"type": "text", "text": user_prompt}
                     ]
                 }
             ]
@@ -196,12 +202,28 @@ class InvoiceProcessor:
                     }
                 })
             
-            response = openai.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=self.max_tokens,
-                temperature=0.1
-            )
+            # Build API parameters dynamically based on model requirements
+            api_params = {
+                'model': model_config['model'],
+                'messages': messages
+            }
+            
+            # Add token limit parameter (varies by model)
+            if 'max_completion_tokens' in model_config:
+                api_params['max_completion_tokens'] = model_config['max_completion_tokens']
+            elif 'max_tokens' in model_config:
+                api_params['max_tokens'] = model_config['max_tokens']
+            
+            # Add temperature if supported
+            if 'temperature' in model_config:
+                api_params['temperature'] = model_config['temperature']
+            
+            response = self.client.chat.completions.create(**api_params)
+            
+            # Log token usage for performance monitoring
+            if hasattr(response, 'usage') and response.usage:
+                usage = response.usage
+                logger.info(f"Token usage - Input: {usage.prompt_tokens}, Output: {usage.completion_tokens}, Total: {usage.total_tokens}")
             
             result = response.choices[0].message.content
             
@@ -215,63 +237,38 @@ class InvoiceProcessor:
             logger.error(f"Error analyzing with OpenAI for {file_path}: {str(e)}")
             return None
 
-    def _get_analysis_prompt(self) -> str:
-        return """
-        Extract the following information from the invoice and return it as valid JSON:
-
-        {
-            "vendor_name": "string - company/vendor that issued the invoice",
-            "invoice_number": "string - invoice number",
-            "invoice_date": "YYYY-MM-DD or null",
-            "service_description": "string - description of services/products",
-            "service_period_start": "YYYY-MM-DD or null - when service period starts",
-            "service_period_end": "YYYY-MM-DD or null - when service period ends", 
-            "line_items": [
-                {
-                    "description": "string - line item description",
-                    "amount": "number - line item amount",
-                    "period_start": "YYYY-MM-DD or null",
-                    "period_end": "YYYY-MM-DD or null"
-                }
-            ],
-            "total_amount": "number - total invoice amount",
-            "currency": "string - currency code (USD, EUR, etc.)",
-            "language": "string - detected language of invoice",
-            "confidence_score": "number between 0 and 1 - confidence in extraction accuracy"
-        }
-
-        Important guidelines:
-        1. If the invoice is in a foreign language, translate the service descriptions to English
-        2. Look for service periods, subscription periods, or billing periods
-        3. Extract all line items with their individual amounts
-        4. Be very careful with date formats - use YYYY-MM-DD only
-        5. For confidence_score, consider text clarity, completeness of data found
-        6. Return only valid JSON, no additional text or explanations
-        """
 
     def _dict_to_invoice_data(self, data_dict: Dict, bill_id: str, file_path: str) -> InvoiceData:
+        # Create line items summary
+        line_items = data_dict.get('line_items', [])
+        line_items_summary = None
+        if line_items:
+            items_text = []
+            for item in line_items:
+                desc = item.get('description', 'N/A')
+                amount = item.get('amount', 'N/A')
+                items_text.append(f"{desc}: {amount}")
+            line_items_summary = "; ".join(items_text)
+        
         return InvoiceData(
             bill_id=bill_id,
-            vendor_name=data_dict.get('vendor_name', ''),
-            invoice_number=data_dict.get('invoice_number', ''),
+            invoice_number=data_dict.get('invoice_number'),
             invoice_date=self._parse_date(data_dict.get('invoice_date')),
-            service_description=data_dict.get('service_description', ''),
-            service_period_start=self._parse_date(data_dict.get('service_period_start')),
-            service_period_end=self._parse_date(data_dict.get('service_period_end')),
-            line_items=data_dict.get('line_items', []),
-            total_amount=float(data_dict.get('total_amount', 0)),
-            currency=data_dict.get('currency', 'USD'),
-            language=data_dict.get('language', 'en'),
+            service_description=data_dict.get('service_description'),
+            service_period=data_dict.get('service_period'),  # Keep as text
+            line_items_summary=line_items_summary,
+            total_amount=float(data_dict.get('total_amount')) if data_dict.get('total_amount') is not None else None,
+            currency=data_dict.get('currency'),
             confidence_score=float(data_dict.get('confidence_score', 0.5)),
             extracted_at=datetime.now(),
             file_path=file_path
         )
 
-    def _parse_date(self, date_str: str) -> Optional[datetime]:
+    def _parse_date(self, date_str: str) -> Optional[date]:
         if not date_str:
             return None
         try:
-            return datetime.strptime(date_str, '%Y-%m-%d')
+            return datetime.strptime(date_str, '%Y-%m-%d').date()
         except (ValueError, TypeError):
             return None
 

@@ -9,6 +9,7 @@ from config.settings import OpenAIConfig, AppConfig
 from src.clients.netsuite_client import POLine, Bill
 from src.processors.invoice_processor import InvoiceData
 from src.utils.logger import setup_logger
+from src.utils.prompt_manager import get_system_prompt, get_user_prompt, get_model_config
 
 logger = setup_logger(__name__)
 
@@ -17,7 +18,8 @@ class AccrualDecision:
     po_id: str
     line_id: str
     bill_id: Optional[str]
-    accrual_amount_usd: float
+    accrual_amount_local: float  # Accrual amount in PO's local currency
+    accrual_amount_usd: float    # Converted to USD for reporting
     reasoning: str
     confidence_score: float
     created_at: datetime
@@ -31,11 +33,24 @@ class AccrualEngine:
         if not OpenAIConfig.API_KEY:
             raise ValueError("OpenAI API key not configured")
         
+        # Use legacy OpenAI initialization (compatible with v1.3.5)
         openai.api_key = OpenAIConfig.API_KEY
         self.excluded_gl_accounts = set(AppConfig.EXCLUDED_GL_ACCOUNTS)
         self.min_accrual_amount_usd = AppConfig.MIN_ACCRUAL_AMOUNT_USD
         
         logger.info("Accrual engine initialized")
+
+    def _convert_accrual_to_usd(self, accrual_local: float, po_line: POLine) -> float:
+        """Convert accrual amount from local currency to USD using PO's exchange rate"""
+        if po_line.currency.upper() == 'USD' or po_line.amount == 0:
+            return accrual_local
+        
+        # Use the PO's own USD/local currency ratio
+        po_exchange_rate = po_line.amount_usd / po_line.amount if po_line.amount != 0 else 1.0
+        accrual_usd = accrual_local * po_exchange_rate
+        
+        logger.debug(f"Converted accrual {accrual_local} {po_line.currency} to ${accrual_usd:,.2f} USD (rate: {po_exchange_rate:.4f})")
+        return accrual_usd
 
     def analyze_accrual_need(self, po_line: POLine, bills: List[Bill], 
                            invoice_data_list: List[InvoiceData]) -> AccrualDecision:
@@ -48,14 +63,12 @@ class AccrualEngine:
                     po_line, None, f"Excluded GL account: {po_line.gl_account}"
                 )
             
-            remaining_balance_usd = self._convert_to_usd(
-                po_line.remaining_balance, po_line.currency
-            )
-            
-            if remaining_balance_usd < self.min_accrual_amount_usd:
+            # Note: USD remaining balance filtering is already done in data sync manager
+            # This is just a safety check
+            if po_line.remaining_balance_usd < self.min_accrual_amount_usd:
                 return self._create_no_accrual_decision(
                     po_line, None, 
-                    f"Remaining balance ${remaining_balance_usd:,.2f} USD < ${self.min_accrual_amount_usd:,.2f} USD threshold"
+                    f"Remaining balance ${po_line.remaining_balance_usd:,.2f} USD < ${self.min_accrual_amount_usd:,.2f} USD threshold"
                 )
             
             # Use AI to analyze complex scenarios
@@ -75,53 +88,70 @@ class AccrualEngine:
         account_number = gl_account.split(' ')[0].strip()
         return account_number in self.excluded_gl_accounts
 
-    def _convert_to_usd(self, amount: float, currency: str) -> float:
-        """Convert amount to USD. For now, simplified conversion."""
-        if currency.upper() == 'USD':
-            return amount
-        
-        # TODO: Implement actual currency conversion using exchange rates
-        # For now, use simplified rates
-        conversion_rates = {
-            'EUR': 1.1,
-            'GBP': 1.25,
-            'CAD': 0.75,
-            'JPY': 0.007,
-        }
-        
-        rate = conversion_rates.get(currency.upper(), 1.0)
-        return amount * rate
 
     def _ai_analyze_accrual(self, po_line: POLine, bills: List[Bill], 
                           invoice_data_list: List[InvoiceData]) -> AccrualDecision:
         try:
-            prompt = self._create_analysis_prompt(po_line, bills, invoice_data_list)
+            # Prepare template variables
+            template_vars = self._prepare_prompt_variables(po_line, bills, invoice_data_list)
             
-            response = openai.chat.completions.create(
-                model="gpt-4",
-                messages=[
+            # Get prompts and model config from prompt manager
+            system_prompt = get_system_prompt("accrual_analysis")
+            user_prompt = get_user_prompt("accrual_analysis", **template_vars)
+            model_config = get_model_config("accrual_analysis")
+            
+            # Build API parameters dynamically based on model requirements
+            api_params = {
+                'model': model_config['model'],
+                'messages': [
                     {
                         "role": "system",
-                        "content": "You are a financial expert specializing in accrual accounting. Analyze the provided data and make accrual decisions based on accounting principles and business rules."
+                        "content": system_prompt
                     },
                     {
                         "role": "user", 
-                        "content": prompt
+                        "content": user_prompt
                     }
-                ],
-                max_tokens=1000,
-                temperature=0.1
-            )
+                ]
+            }
+            
+            # Add token limit parameter (varies by model)
+            if 'max_completion_tokens' in model_config:
+                api_params['max_completion_tokens'] = model_config['max_completion_tokens']
+            elif 'max_tokens' in model_config:
+                api_params['max_tokens'] = model_config['max_tokens']
+            
+            # Add temperature if supported
+            if 'temperature' in model_config:
+                api_params['temperature'] = model_config['temperature']
+            
+            response = openai.chat.completions.create(**api_params)
             
             result = json.loads(response.choices[0].message.content)
+            
+            # Get accrual amount in local currency from AI response
+            accrual_amount_local = float(result.get('accrual_amount_local', 0))
+            
+            # Convert to USD using PO's exchange rate for threshold check
+            accrual_amount_usd = self._convert_accrual_to_usd(accrual_amount_local, po_line)
+            
+            # Apply USD threshold - if converted amount < $5,000 USD, set to 0
+            if accrual_amount_usd < self.min_accrual_amount_usd and accrual_amount_local > 0:
+                logger.info(f"Accrual ${accrual_amount_usd:,.2f} USD < ${self.min_accrual_amount_usd:,.2f} threshold, setting to $0")
+                accrual_amount_local = 0
+                accrual_amount_usd = 0
+                reasoning = result.get('reasoning', '') + f" [Adjusted to $0: calculated accrual ${accrual_amount_usd:,.2f} USD < ${self.min_accrual_amount_usd:,.2f} USD threshold]"
+            else:
+                reasoning = result.get('reasoning', '')
             
             # Convert to AccrualDecision object
             return AccrualDecision(
                 po_id=po_line.po_id,
                 line_id=po_line.line_id,
                 bill_id=result.get('bill_id'),
-                accrual_amount_usd=float(result.get('accrual_amount_usd', 0)),
-                reasoning=result.get('reasoning', ''),
+                accrual_amount_local=accrual_amount_local,
+                accrual_amount_usd=accrual_amount_usd,
+                reasoning=reasoning,
                 confidence_score=float(result.get('confidence_score', 0.5)),
                 created_at=datetime.now(),
                 gl_account=po_line.gl_account,
@@ -136,30 +166,16 @@ class AccrualEngine:
                 po_line, None, f"AI analysis failed: {str(e)}"
             )
 
-    def _create_analysis_prompt(self, po_line: POLine, bills: List[Bill], 
-                              invoice_data_list: List[InvoiceData]) -> str:
+    def _prepare_prompt_variables(self, po_line: POLine, bills: List[Bill], 
+                                invoice_data_list: List[InvoiceData]) -> Dict[str, Any]:
+        """Prepare all template variables needed for the accrual analysis prompt"""
         current_date = datetime.now().strftime('%Y-%m-%d')
+        current_month = current_date[:7]
         
-        prompt = f"""
-        Analyze whether an accrual is needed for this Purchase Order line as of {current_date}.
-
-        PO LINE DETAILS:
-        - PO ID: {po_line.po_id}
-        - Line ID: {po_line.line_id}
-        - Vendor: {po_line.vendor_name}
-        - GL Account: {po_line.gl_account}
-        - Description: {po_line.description}
-        - Total Amount: {po_line.amount} {po_line.currency}
-        - Remaining Balance: {po_line.remaining_balance} {po_line.currency}
-        - Delivery Date: {po_line.delivery_date}
-        - Prepaid Start: {po_line.prepaid_start_date}
-        - Prepaid End: {po_line.prepaid_end_date}
-
-        RELATED BILLS:
-        """
-        
+        # Prepare bills section
+        bills_section = ""
         for bill in bills:
-            prompt += f"""
+            bills_section += f"""
         - Bill ID: {bill.bill_id}
         - Amount: {bill.amount} {bill.currency}
         - Status: {bill.payment_status}
@@ -167,9 +183,13 @@ class AccrualEngine:
         - Created: {bill.created_date}
         """
         
-        prompt += "\nINVOICE DATA:\n"
+        if not bills_section.strip():
+            bills_section = "No related bills found."
+        
+        # Prepare invoices section
+        invoices_section = ""
         for invoice in invoice_data_list:
-            prompt += f"""
+            invoices_section += f"""
         - Invoice: {invoice.invoice_number}
         - Service Description: {invoice.service_description}
         - Service Period: {invoice.service_period_start} to {invoice.service_period_end}
@@ -177,37 +197,29 @@ class AccrualEngine:
         - Line Items: {json.dumps(invoice.line_items, indent=2)}
         """
         
-        prompt += f"""
-
-        BUSINESS RULES:
-        1. No negative accruals for prepaid services
-        2. Consider if services were provided but not yet paid
-        3. Estimate monthly accrual amounts
-        4. Check if we paid for previous months already
-        5. Current month to accrue for: {current_date[:7]} (YYYY-MM)
-
-        ANALYSIS INSTRUCTIONS:
-        1. Determine if an accrual is needed based on:
-           - Has the service been provided but not yet expensed?
-           - Is there an unpaid portion that should be accrued?
-           - For subscription services, calculate monthly accrual amount
+        if not invoices_section.strip():
+            invoices_section = "No invoice data available."
         
-        2. Calculate the accrual amount in USD for the current month only
-        
-        3. Consider payment history and previous accruals
-        
-        4. Provide detailed reasoning for the decision
-
-        Return response as valid JSON:
-        {{
-            "bill_id": "string or null - which bill this relates to",
-            "accrual_amount_usd": "number - amount to accrue in USD (0 if no accrual needed)",
-            "reasoning": "string - detailed explanation of the decision",
-            "confidence_score": "number between 0 and 1"
-        }}
-        """
-        
-        return prompt
+        # Return all template variables
+        return {
+            'current_date': current_date,
+            'current_month': current_month,
+            'po_id': po_line.po_id,
+            'line_id': po_line.line_id,
+            'vendor_name': po_line.vendor_name,
+            'gl_account': po_line.gl_account,
+            'description': po_line.description,
+            'amount': po_line.amount,
+            'amount_usd': po_line.amount_usd,
+            'remaining_balance': po_line.remaining_balance,
+            'remaining_balance_usd': po_line.remaining_balance_usd,
+            'currency': po_line.currency,
+            'delivery_date': po_line.delivery_date or 'Not specified',
+            'prepaid_start_date': po_line.prepaid_start_date or 'Not specified',
+            'prepaid_end_date': po_line.prepaid_end_date or 'Not specified',
+            'bills_section': bills_section.strip(),
+            'invoices_section': invoices_section.strip()
+        }
 
     def _create_no_accrual_decision(self, po_line: POLine, bill_id: Optional[str], 
                                   reasoning: str) -> AccrualDecision:
@@ -215,6 +227,7 @@ class AccrualEngine:
             po_id=po_line.po_id,
             line_id=po_line.line_id,
             bill_id=bill_id,
+            accrual_amount_local=0.0,
             accrual_amount_usd=0.0,
             reasoning=reasoning,
             confidence_score=1.0,
