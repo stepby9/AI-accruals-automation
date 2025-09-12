@@ -21,16 +21,16 @@ user_prompt_template: |
   {{
       "invoice_number": "string - invoice number or null if not found",
       "invoice_date": "YYYY-MM-DD or null if not found",
-      "service_description": "string - brief description of services/products or null if unclear",
-      "service_period": "string - service period as text (e.g. when the service was provided, can be name of month, dates etc. e.g. 'January 2025', 'Q1 2024', '2024-2025') or null if not found",
+      "service_description": "string - brief description of services/products/line items or null if unclear",
+      "service_period": "string - service period as text (e.g. when the service was provided, can be name of month, dates, start/from date to end/to date, e.g. 'January 2025', 'Q1 2024', '2024-2025') or null if not found",
       "line_items": [
           {{
               "description": "string - line item description",
               "amount": "number - line item amount"
           }}
       ],
-      "total_amount": "number - total invoice amount or null if not found",
-      "currency": "string - currency code (USD, EUR, etc.) or null if not stated",
+      "total_amount": "number - total invoice amount EXCLUDING VAT/TAX (net amount) or null if not found",
+      "currency": "string - currency code (USD, EUR, etc., sometimes can be found as a currency symbol) or null if not stated",
       "confidence_score": "number between 0 and 1 - confidence in extraction accuracy"
   }}
 
@@ -42,9 +42,12 @@ user_prompt_template: |
   5. If information is unclear, partially visible, or ambiguous, set the field to null rather than guessing
   6. If amounts are shown without currency symbols, extract the number but set currency to null unless currency is explicitly stated elsewhere in the document
   7. If dates are in non-standard formats, only convert if you can definitively determine the correct date from context within the document
-  8. If the invoice is in a foreign language, translate service descriptions to English but ONLY translate text that is clearly visible
+  8. For service_period, if it is not explicitly stated, see if there is start date and end date mentioned, and take them as service period, otherwise set to null
+  8. If the invoice is in a foreign language, translate it to English but ONLY translate text that is clearly visible
   9. For confidence_score, heavily penalize any extraction that required inference or assumption
-  10. Return only valid JSON, no additional text or explanations
+  10. For total_amount, ensure it excludes any VAT/tax amounts if those are separately listed. Sometimes tax can be listed as service line items, make sure to deduct those from the total invoce value. If only gross amounts are shown, show gross amount.
+  11. Always return all information in English
+  12. Return only valid JSON, no additional text or explanations
 
   EXAMPLES OF WHAT NOT TO DO:
   - Don't assume USD currency if no currency is shown
@@ -62,6 +65,11 @@ user_prompt_template: |
   {content_section}
 
 # Configuration
+#gpt-4o
 model: "gpt-4o"  # GPT-4o model for enhanced vision capabilities
 max_tokens: 2048
 temperature: 0.1
+
+#gpt-5
+# model: "gpt-5"  # Latest GPT-5 model for best performance  
+# max_completion_tokens: 4000  # GPT-5 uses max_completion_tokens instead of max_tokens

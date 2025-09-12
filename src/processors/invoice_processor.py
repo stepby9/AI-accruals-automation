@@ -74,20 +74,22 @@ class InvoiceProcessor:
             
             # Extract text from all pages
             text_content = ""
+            page_images = []
+            
             for page_num in range(len(doc)):
                 page = doc.load_page(page_num)
                 text_content += page.get_text()
-            
-            # Convert first page to image for visual analysis
-            first_page = doc.load_page(0)
-            pix = first_page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom
-            img_data = pix.tobytes("png")
+                
+                # Convert each page to image for visual analysis
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom
+                img_data = pix.tobytes("png")
+                page_images.append(img_data)
             
             doc.close()
             
             return self._analyze_with_openai(
                 text_content=text_content,
-                image_data=img_data,
+                image_data=page_images,
                 file_path=file_path,
                 bill_id=bill_id
             )
@@ -103,7 +105,7 @@ class InvoiceProcessor:
             
             return self._analyze_with_openai(
                 text_content="",
-                image_data=image_data,
+                image_data=[image_data],  # Wrap in list for consistency
                 file_path=file_path,
                 bill_id=bill_id
             )
@@ -162,7 +164,7 @@ class InvoiceProcessor:
             logger.error(f"Error processing Word document {file_path}: {str(e)}")
             return None
 
-    def _analyze_with_openai(self, text_content: str, image_data: bytes, 
+    def _analyze_with_openai(self, text_content: str, image_data, 
                            file_path: str, bill_id: str) -> Optional[InvoiceData]:
         try:
             # Prepare template variables
@@ -193,14 +195,28 @@ class InvoiceProcessor:
                 })
             
             if image_data:
-                base64_image = base64.b64encode(image_data).decode('utf-8')
-                messages[1]["content"].append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/png;base64,{base64_image}",
-                        "detail": "high"
-                    }
-                })
+                # Handle both single image (bytes) and multiple images (list)
+                if isinstance(image_data, list):
+                    # Multiple page images
+                    for i, img_bytes in enumerate(image_data):
+                        base64_image = base64.b64encode(img_bytes).decode('utf-8')
+                        messages[1]["content"].append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{base64_image}",
+                                "detail": "high"
+                            }
+                        })
+                else:
+                    # Single image (backwards compatibility)
+                    base64_image = base64.b64encode(image_data).decode('utf-8')
+                    messages[1]["content"].append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{base64_image}",
+                            "detail": "high"
+                        }
+                    })
             
             # Build API parameters dynamically based on model requirements
             api_params = {

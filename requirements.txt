@@ -21,7 +21,7 @@ snowflake-connector-python>=3.17
 # Document processing
 PyMuPDF>=1.26.4  # fitz for PDF processing
 Pillow==11.3.0  # PIL for image processing
-pandas==2.1.4  # Excel file processing
+pandas>=2.2.3  # Excel file processing
 openpyxl==3.1.2  # Excel file support
 python-docx==1.1.0  # Word document processing
 

@@ -22,12 +22,15 @@ def setup_logger(name: str, log_file: str = None, level: str = None) -> logging.
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
+    # Set encoding to utf-8 for Unicode support
+    if hasattr(console_handler.stream, 'reconfigure'):
+        console_handler.stream.reconfigure(encoding='utf-8')
     logger.addHandler(console_handler)
     
     if log_file is None:
         log_file = f"{name}_{datetime.now().strftime('%Y%m%d')}.log"
     
-    file_handler = logging.FileHandler(LOGS_DIR / log_file)
+    file_handler = logging.FileHandler(LOGS_DIR / log_file, encoding='utf-8')
     file_handler.setLevel(getattr(logging, level.upper()))
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
