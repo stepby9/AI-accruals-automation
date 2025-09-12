@@ -16,10 +16,10 @@ google-auth-oauthlib==1.1.0
 google-auth-httplib2==0.1.1
 
 # Snowflake database
-snowflake-connector-python==3.6.0
+snowflake-connector-python>=3.17
 
 # Document processing
-PyMuPDF==1.23.14  # fitz for PDF processing
+PyMuPDF>=1.26.4  # fitz for PDF processing
 Pillow==11.3.0  # PIL for image processing
 pandas==2.1.4  # Excel file processing
 openpyxl==3.1.2  # Excel file support
