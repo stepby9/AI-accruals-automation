@@ -226,9 +226,26 @@ class InvoiceProcessor:
                 logger.info(f"Token usage - Input: {usage.prompt_tokens}, Output: {usage.completion_tokens}, Total: {usage.total_tokens}")
             
             result = response.choices[0].message.content
+            logger.debug(f"OpenAI response for {file_path}: {result}")
+            
+            # Clean the response - remove markdown code blocks if present
+            cleaned_result = result.strip()
+            if cleaned_result.startswith('```json'):
+                cleaned_result = cleaned_result[7:]  # Remove ```json
+            if cleaned_result.startswith('```'):
+                cleaned_result = cleaned_result[3:]   # Remove ```
+            if cleaned_result.endswith('```'):
+                cleaned_result = cleaned_result[:-3]  # Remove closing ```
+            cleaned_result = cleaned_result.strip()
             
             # Parse JSON response
-            invoice_data_dict = json.loads(result)
+            try:
+                invoice_data_dict = json.loads(cleaned_result)
+            except json.JSONDecodeError as json_err:
+                logger.error(f"JSON parsing failed for {file_path}. Raw response: {result}")
+                logger.error(f"Cleaned response: {cleaned_result}")
+                logger.error(f"JSON error: {str(json_err)}")
+                return None
             
             # Convert to InvoiceData object
             return self._dict_to_invoice_data(invoice_data_dict, bill_id, file_path)

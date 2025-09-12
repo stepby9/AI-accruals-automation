@@ -62,6 +62,6 @@ user_prompt_template: |
   {content_section}
 
 # Configuration
-model: "gpt-5"  # Latest GPT-5 model with enhanced vision capabilities
-max_completion_tokens: 4000  # GPT-5 uses max_completion_tokens instead of max_tokens
-# No temperature parameter - GPT-5 only supports default (1) for deterministic behavior
+model: "gpt-4o"  # GPT-4o model for enhanced vision capabilities
+max_tokens: 2048
+temperature: 0.1

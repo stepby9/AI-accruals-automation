@@ -23,19 +23,19 @@ def test_invoices():
         
         # Check if OpenAI API key is configured
         if not OpenAIConfig.API_KEY:
-            print("❌ ERROR: OpenAI API key not found!")
+            print("ERROR: OpenAI API key not found!")
             print("   Please set OPENAI_API_KEY in your .env file")
             return
         
-        print("🤖 OpenAI API key found ✅")
+        print("OpenAI API key found")
         
         # Check OpenAI version and initialize appropriately
-        print(f"🔍 OpenAI library version: {openai.__version__}")
+        print(f"OpenAI library version: {openai.__version__}")
         
         try:
             # Try new OpenAI v1.x initialization
             test_client = openai.OpenAI(api_key=OpenAIConfig.API_KEY)
-            print("🤖 OpenAI client (v1.x) initialized ✅")
+            print("OpenAI client (v1.x) initialized")
         except Exception as e:
             print(f"❌ OpenAI v1.x client error: {str(e)}")
             print("🔧 Trying legacy initialization...")
