@@ -14,6 +14,14 @@ from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
+# Import RPA downloader for file downloads
+try:
+    from src.clients.netsuite_rpa_downloader import NetSuiteRPADownloader
+    RPA_AVAILABLE = True
+except ImportError:
+    RPA_AVAILABLE = False
+    logger.warning("Playwright not available - RPA downloads will not work. Install with: pip install playwright && playwright install")
+
 @dataclass
 class POLine:
     po_id: str
@@ -47,19 +55,40 @@ class Bill:
     due_date: Optional[datetime]
 
 class NetSuiteClient:
-    def __init__(self):
+    def __init__(self, use_rpa_for_downloads: bool = True):
+        """
+        Initialize NetSuite client
+
+        Args:
+            use_rpa_for_downloads: If True, uses RPA (Playwright) to download files instead of API
+        """
         self.account_id = NetSuiteConfig.ACCOUNT_ID
         self.token_id = NetSuiteConfig.TOKEN_ID
         self.token_secret = NetSuiteConfig.TOKEN_SECRET
         self.consumer_key = NetSuiteConfig.CONSUMER_KEY
         self.consumer_secret = NetSuiteConfig.CONSUMER_SECRET
-        
-        if not all([self.account_id, self.token_id, self.token_secret, 
+
+        if not all([self.account_id, self.token_id, self.token_secret,
                    self.consumer_key, self.consumer_secret]):
             raise ValueError("NetSuite credentials not properly configured")
-        
+
         self.base_url = f"https://{self.account_id}.suitetalk.api.netsuite.com"
-        logger.info(f"NetSuite client initialized for account: {self.account_id}")
+
+        # Initialize RPA downloader if enabled
+        self.use_rpa_for_downloads = use_rpa_for_downloads and RPA_AVAILABLE
+        self.rpa_downloader = None
+
+        if self.use_rpa_for_downloads:
+            try:
+                # Initialize RPA downloader in headless mode by default
+                headless = os.getenv("NETSUITE_RPA_HEADLESS", "true").lower() == "true"
+                self.rpa_downloader = NetSuiteRPADownloader(headless=headless, manual_login=True)
+                logger.info(f"NetSuite client initialized with RPA downloads (headless={headless})")
+            except Exception as e:
+                logger.error(f"Failed to initialize RPA downloader: {e}")
+                self.use_rpa_for_downloads = False
+        else:
+            logger.info(f"NetSuite client initialized for account: {self.account_id}")
 
     def _generate_oauth_header(self, url: str, method: str = "GET") -> str:
         timestamp = str(int(time.time()))
@@ -186,25 +215,43 @@ class NetSuiteClient:
             return []
 
     def download_invoice_files(self, bill_id: str) -> List[str]:
+        """
+        Download invoice files for a bill
+
+        Uses RPA (browser automation) if enabled, otherwise falls back to API
+
+        Args:
+            bill_id: NetSuite bill ID
+
+        Returns:
+            List of file paths to downloaded files
+        """
         try:
+            # Use RPA download if available
+            if self.use_rpa_for_downloads and self.rpa_downloader:
+                logger.info(f"Using RPA to download files for bill {bill_id}")
+                return self.rpa_downloader.download_bill_invoices(bill_id)
+
+            # Fallback to API download (original implementation)
+            logger.info(f"Using API to download files for bill {bill_id}")
             endpoint = f"/services/rest/record/v1/vendorbill/{bill_id}/file"
             response = self._make_request(endpoint)
-            
+
             file_urls = []
             for file_info in response.get('items', []):
                 file_id = file_info.get('id')
                 file_name = file_info.get('name')
-                
+
                 download_endpoint = f"/services/rest/record/v1/file/{file_id}/content"
                 file_response = self._make_request(download_endpoint)
-                
+
                 # Save file locally and return path
                 file_path = self._save_invoice_file(bill_id, file_name, file_response)
                 file_urls.append(file_path)
-            
+
             logger.info(f"Downloaded {len(file_urls)} files for bill {bill_id}")
             return file_urls
-            
+
         except Exception as e:
             logger.error(f"Error downloading invoice files for bill {bill_id} - {str(e)}")
             return []

@@ -20,6 +20,11 @@ class NetSuiteConfig:
     CONSUMER_KEY = os.getenv("NETSUITE_CONSUMER_KEY")
     CONSUMER_SECRET = os.getenv("NETSUITE_CONSUMER_SECRET")
 
+    # RPA / Browser Automation settings
+    OKTA_URL = os.getenv("NETSUITE_OKTA_URL")  # Okta SSO URL for NetSuite
+    RPA_HEADLESS = os.getenv("NETSUITE_RPA_HEADLESS", "true").lower() == "true"
+    USE_RPA_DOWNLOADS = os.getenv("NETSUITE_USE_RPA_DOWNLOADS", "true").lower() == "true"
+
 class OpenAIConfig:
     API_KEY = os.getenv("OPENAI_API_KEY")
     MODEL = "gpt-4-vision-preview"

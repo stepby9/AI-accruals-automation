@@ -14,6 +14,7 @@ This system replaces a manual process that involves:
 ## Features
 
 - **Incremental Data Sync**: Only processes new bills and invoices to save ~90% on API costs after first month
+- **RPA File Downloads**: Uses browser automation (Playwright) to download invoice files from NetSuite reliably
 - **Multi-format Invoice Processing**: Handles PDF, Excel, Word, and image invoices
 - **AI-Powered Analysis**: Uses OpenAI GPT-4 Vision to extract invoice data and make accrual decisions
 - **Business Rules Engine**: Implements complex accrual logic and GL account exclusions
@@ -51,6 +52,9 @@ Google Sheets (PO/PR list)
 
 ```bash
 pip install -r requirements.txt
+
+# Install Playwright browser for RPA downloads
+playwright install chromium
 ```
 
 ### 3. Google Service Account Setup
@@ -107,7 +111,8 @@ The system implements the following accrual rules:
 
 ### Core Modules
 
-- `src/clients/netsuite_client.py` - NetSuite integration
+- `src/clients/netsuite_client.py` - NetSuite API integration
+- `src/clients/netsuite_rpa_downloader.py` - RPA browser automation for file downloads
 - `src/clients/sheets_client.py` - Google Sheets integration
 - `src/processors/invoice_processor.py` - AI-powered invoice processing
 - `src/engines/accrual_engine.py` - Business rules and AI decision engine
@@ -117,6 +122,16 @@ The system implements the following accrual rules:
 ### Main Orchestrator
 
 - `run_monthly_accruals.py` - Main execution script
+
+### Test Scripts
+
+- `test_invoices.py` - Test invoice processing with OpenAI
+- `test_rpa_download.py` - Test RPA file downloads from NetSuite
+
+### Documentation
+
+- `README.md` - Main project documentation
+- `RPA_SETUP.md` - Detailed RPA setup and troubleshooting guide
 
 ## Logging
 
