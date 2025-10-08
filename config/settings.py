@@ -16,6 +16,15 @@ else:
     # Fallback to local folder if not configured (for testing)
     INVOICES_DIR = BASE_DIR / "data" / "invoices"
 
+# Use Google Drive folder for CSV results (configured via .env)
+CSV_RESULTS_DIR_OVERRIDE = os.getenv("CSV_RESULTS_DIR")
+
+if CSV_RESULTS_DIR_OVERRIDE:
+    CSV_RESULTS_DIR = Path(CSV_RESULTS_DIR_OVERRIDE)
+else:
+    # Fallback to local folder if not configured
+    CSV_RESULTS_DIR = BASE_DIR
+
 # Create required directories
 LOGS_DIR.mkdir(exist_ok=True)
 
@@ -47,6 +56,7 @@ class SnowflakeConfig:
     DATABASE = os.getenv("SNOWFLAKE_DATABASE")
     SCHEMA = os.getenv("SNOWFLAKE_SCHEMA")
     WAREHOUSE = os.getenv("SNOWFLAKE_WAREHOUSE")
+    ROLE = os.getenv("SNOWFLAKE_ROLE")
 
 class GoogleConfig:
     SERVICE_ACCOUNT_KEY = os.getenv("GOOGLE_SERVICE_ACCOUNT_KEY")

@@ -25,7 +25,9 @@ class InvoiceData:
     service_description: Optional[str]
     service_period: Optional[str]  # Text format like "January 2025", "Q1 2024"
     line_items_summary: Optional[str]  # Concatenated line items with amounts
-    total_amount: Optional[float]
+    total_amount: Optional[float]  # Total invoice amount including tax (final amount)
+    tax_amount: Optional[float]  # Tax/VAT amount if separately shown
+    net_amount: Optional[float]  # Net amount excluding tax (total - tax)
     currency: Optional[str]
     confidence_score: float
     extracted_at: datetime
@@ -293,6 +295,8 @@ class InvoiceProcessor:
             service_period=data_dict.get('service_period'),  # Keep as text
             line_items_summary=line_items_summary,
             total_amount=float(data_dict.get('total_amount')) if data_dict.get('total_amount') is not None else None,
+            tax_amount=float(data_dict.get('tax_amount')) if data_dict.get('tax_amount') is not None else None,
+            net_amount=float(data_dict.get('net_amount')) if data_dict.get('net_amount') is not None else None,
             currency=data_dict.get('currency'),
             confidence_score=float(data_dict.get('confidence_score', 0.5)),
             extracted_at=datetime.now(),

@@ -10,11 +10,17 @@ Usage:
 
 import sys
 import os
+import csv
 from pathlib import Path
+from datetime import datetime
 
 # Add src to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__)))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+
+from src.utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 def test_invoices():
     try:
@@ -103,14 +109,17 @@ def test_invoices():
             return
         
         print(f"📁 Found {len(invoice_files)} files in {folder_path}")
+        logger.info(f"Found {len(invoice_files)} files in {folder_path}")
         print("📄 Files detected:")
         for file in invoice_files:
             # Show bill ID if scanning all bills
             if folder_path == INVOICES_DIR and len(sys.argv) <= 1:
                 bill_id = file.parent.name
                 print(f"   - Bill {bill_id}: {file.name} ({file.suffix})")
+                logger.info(f"File detected - Bill {bill_id}: {file.name} ({file.suffix})")
             else:
                 print(f"   - {file.name} ({file.suffix})")
+                logger.info(f"File detected: {file.name} ({file.suffix})")
         print("=" * 60)
         
         # Initialize processor 
@@ -121,6 +130,39 @@ def test_invoices():
             print(f"❌ Error initializing InvoiceProcessor: {str(e)}")
             return
         
+        # Prepare CSV output
+        from config.settings import CSV_RESULTS_DIR
+        csv_path = CSV_RESULTS_DIR / "invoice_extraction_results.csv"
+        results_data = []
+        newly_processed_count = 0
+
+        # Clear CSV file at start of each run (fresh start)
+        with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+            fieldnames = ['bill_id', 'file_name', 'is_invoice', 'invoice_number', 'invoice_date',
+                         'service_description', 'service_period', 'line_items_summary',
+                         'total_amount', 'tax_amount', 'net_amount', 'currency', 'confidence_score',
+                         'processing_time_seconds', 'file_path']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+        logger.info("Cleared CSV file for fresh run")
+
+        # Load existing processed invoices from Snowflake (single query at startup)
+        print("🔍 Checking Snowflake for already processed invoices...")
+        logger.info("Querying Snowflake for processed invoices")
+
+        try:
+            from src.clients.snowflake_data_client import SnowflakeDataClient
+            snowflake_client = SnowflakeDataClient()
+            processed_invoices = snowflake_client.get_processed_invoices()
+            print(f"📋 Loaded {len(processed_invoices)} already processed invoices from Snowflake")
+            logger.info(f"Loaded {len(processed_invoices)} processed invoices from Snowflake")
+        except Exception as e:
+            print(f"⚠️  Could not connect to Snowflake: {str(e)}")
+            print(f"   Falling back to local CSV check only")
+            logger.warning(f"Could not load from Snowflake, using empty set: {str(e)}")
+            processed_invoices = set()
+            snowflake_client = None
+
         # Process each file
         for i, file_path in enumerate(invoice_files, 1):
             # Determine bill ID
@@ -132,36 +174,155 @@ def test_invoices():
                 print(f"\n🧾 [{i}/{len(invoice_files)}] Processing: {file_path.name}")
             print("-" * 40)
 
+            # Check if already processed in Snowflake
+            record_key = (bill_id, file_path.name)
+            if record_key in processed_invoices:
+                print("✓ Invoice has already been processed and can be found in Snowflake. Skipping")
+                logger.info(f"Skipping already processed invoice: Bill {bill_id}, File: {file_path.name}")
+                continue
+
             import time
             start_time = time.time()
 
             try:
                 # Process invoice
                 result = processor.process_invoice(str(file_path), bill_id)
-                
+
                 processing_time = time.time() - start_time
-                
+
                 if result:
+                    # Check if document is actually an invoice
+                    if not result.is_invoice:
+                        print("⚠️  NOT AN INVOICE!")
+                        print(f"   This document is not an invoice - deleting file")
+                        print(f"   Processing Time: {processing_time:.1f} seconds")
+
+                        logger.warning(f"Document is not an invoice: Bill {bill_id}, File: {file_path.name}")
+                        logger.info(f"Deleting non-invoice file: {file_path}")
+
+                        # Delete the non-invoice file
+                        try:
+                            file_path.unlink()
+                            print(f"   ✓ File deleted: {file_path.name}")
+                            logger.info(f"Successfully deleted non-invoice file: {file_path.name}")
+                        except Exception as delete_error:
+                            print(f"   ❌ Could not delete file: {str(delete_error)}")
+                            logger.error(f"Failed to delete non-invoice file {file_path.name}: {str(delete_error)}")
+
+                        # Do NOT add to CSV/database
+                        logger.info(f"Skipping database insertion for non-invoice: Bill {bill_id}, File: {file_path.name}")
+                        continue
+
                     print("✅ SUCCESS!")
                     print(f"   Is invoice: {result.is_invoice}")
                     print(f"   Invoice #: {result.invoice_number or 'N/A'}")
                     print(f"   Date: {result.invoice_date or 'N/A'}")
-                    print(f"   Amount: {result.total_amount or 'N/A'} {result.currency or 'N/A'}")
+                    print(f"   Total (incl. tax): {result.total_amount or 'N/A'} {result.currency or 'N/A'}")
+                    print(f"   Tax: {result.tax_amount or 'N/A'} {result.currency or 'N/A'}")
+                    print(f"   Net (excl. tax): {result.net_amount or 'N/A'} {result.currency or 'N/A'}")
                     print(f"   Description: {result.service_description or 'N/A'}")
                     print(f"   Service Period: {result.service_period or 'N/A'}")
                     print(f"   Line Items: {result.line_items_summary or 'N/A'}")
                     print(f"   Confidence: {result.confidence_score:.2f}")
                     print(f"   Processing Time: {processing_time:.1f} seconds")
                     print(f"   File: {result.file_path}")
+
+                    # Log successful extraction
+                    logger.info(f"Successfully processed invoice: Bill {bill_id}, File: {file_path.name}, Invoice#: {result.invoice_number}, Amount: {result.net_amount} {result.currency}, Confidence: {result.confidence_score:.2f}")
+
+                    # Add to CSV results (only if is_invoice = True)
+                    newly_processed_count += 1
+                    results_data.append({
+                        'bill_id': result.bill_id,
+                        'file_name': file_path.name,
+                        'is_invoice': result.is_invoice,
+                        'invoice_number': result.invoice_number or '',
+                        'invoice_date': result.invoice_date or '',
+                        'service_description': result.service_description or '',
+                        'service_period': result.service_period or '',
+                        'line_items_summary': result.line_items_summary or '',
+                        'total_amount': result.total_amount or '',
+                        'tax_amount': result.tax_amount or '',
+                        'net_amount': result.net_amount or '',
+                        'currency': result.currency or '',
+                        'confidence_score': result.confidence_score,
+                        'processing_time_seconds': round(processing_time, 1),
+                        'file_path': result.file_path
+                    })
                 else:
                     print("❌ FAILED: No data extracted")
                     print(f"   Processing Time: {processing_time:.1f} seconds")
-                    
+                    logger.error(f"Failed to extract data from invoice: Bill {bill_id}, File: {file_path.name}")
+
+                    # Add failed result to CSV
+                    results_data.append({
+                        'bill_id': bill_id,
+                        'file_name': file_path.name,
+                        'is_invoice': 'FAILED',
+                        'invoice_number': '',
+                        'invoice_date': '',
+                        'service_description': '',
+                        'service_period': '',
+                        'line_items_summary': '',
+                        'total_amount': '',
+                        'tax_amount': '',
+                        'net_amount': '',
+                        'currency': '',
+                        'confidence_score': 0,
+                        'processing_time_seconds': round(processing_time, 1),
+                        'file_path': str(file_path)
+                    })
+
             except Exception as e:
                 print(f"❌ ERROR: {str(e)}")
-        
-        print("\n" + "=" * 60)
+                logger.error(f"Exception during invoice processing: Bill {bill_id}, File: {file_path.name}, Error: {str(e)}")
+
+                # Add error result to CSV
+                results_data.append({
+                    'bill_id': bill_id,
+                    'file_name': file_path.name,
+                    'is_invoice': 'ERROR',
+                    'invoice_number': '',
+                    'invoice_date': '',
+                    'service_description': '',
+                    'service_period': '',
+                    'line_items_summary': str(e),
+                    'total_amount': '',
+                    'tax_amount': '',
+                    'net_amount': '',
+                    'currency': '',
+                    'confidence_score': 0,
+                    'processing_time_seconds': 0,
+                    'file_path': str(file_path)
+                })
+
+        # Write results to CSV only if there are new results
+        if newly_processed_count > 0:
+            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['bill_id', 'file_name', 'is_invoice', 'invoice_number', 'invoice_date',
+                             'service_description', 'service_period', 'line_items_summary',
+                             'total_amount', 'tax_amount', 'net_amount', 'currency', 'confidence_score',
+                             'processing_time_seconds', 'file_path']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(results_data)
+
+            print("\n" + "=" * 60)
+            print(f"📊 Results saved to CSV: {csv_path.absolute()}")
+            print(f"   Newly processed invoices: {newly_processed_count}")
+            print(f"\n💡 Next step: Review the CSV and then upload to Snowflake using:")
+            print(f"   python upload_to_snowflake.py")
+            logger.info(f"Saved {newly_processed_count} newly processed invoices to CSV")
+
+        else:
+            print("\n" + "=" * 60)
+            print(f"✓ No new invoices to process")
+            print(f"   All invoices already in Snowflake database")
+            logger.info(f"No new invoices processed - all already in Snowflake")
+
+        print("=" * 60)
         print("🎯 Test completed!")
+        logger.info("Invoice processing test completed")
         
     except ImportError as e:
         print(f"❌ Import error: {str(e)}")

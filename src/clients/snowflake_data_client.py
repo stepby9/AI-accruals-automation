@@ -71,6 +71,10 @@ class SnowflakeDataClient:
             'warehouse': SnowflakeConfig.WAREHOUSE
         }
 
+        # Add role if specified
+        if SnowflakeConfig.ROLE:
+            self.connection_params['role'] = SnowflakeConfig.ROLE
+
         logger.info("Snowflake data client initialized")
 
     def _get_connection(self):
@@ -321,4 +325,102 @@ class SnowflakeDataClient:
 
         except Exception as e:
             logger.error(f"Snowflake connection test failed: {str(e)}")
+            return False
+
+    def get_processed_invoices(self) -> set:
+        """
+        Get all (bill_id, file_name) pairs that have already been processed
+        from Snowflake table ACCRUALS_AUTOMATION_EXTRACTED_INVOICES
+
+        Returns:
+            Set of tuples (bill_id, file_name) representing processed invoices
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+
+                query = """
+                    SELECT DISTINCT bill_id, file_name
+                    FROM PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_EXTRACTED_INVOICES
+                """
+
+                cursor.execute(query)
+                rows = cursor.fetchall()
+
+                processed_invoices = {(str(row[0]), str(row[1])) for row in rows}
+
+                logger.info(f"Loaded {len(processed_invoices)} processed invoices from Snowflake")
+                return processed_invoices
+
+        except Exception as e:
+            logger.error(f"Error fetching processed invoices from Snowflake: {str(e)}")
+            return set()
+
+    def upload_csv_to_snowflake(self, csv_file_path: str) -> bool:
+        """
+        APPEND CSV file to Snowflake table ACCRUALS_AUTOMATION_EXTRACTED_INVOICES
+        (Does not replace existing data, only adds new records)
+
+        Args:
+            csv_file_path: Path to CSV file with NEW invoice extraction results
+
+        Returns:
+            True if upload successful, False otherwise
+        """
+        try:
+            import csv as csv_module
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Read CSV and insert rows directly
+                logger.info(f"Reading CSV file: {csv_file_path}")
+
+                with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
+                    reader = csv_module.DictReader(csvfile)
+                    rows = list(reader)
+
+                if not rows:
+                    logger.info("No rows to upload (CSV is empty)")
+                    return True
+
+                logger.info(f"Inserting {len(rows)} rows into ACCRUALS_AUTOMATION_EXTRACTED_INVOICES table")
+
+                # Prepare insert query
+                insert_query = """
+                    INSERT INTO PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_EXTRACTED_INVOICES
+                    (bill_id, file_name, is_invoice, invoice_number, invoice_date,
+                     service_description, service_period, line_items_summary,
+                     total_amount, tax_amount, net_amount, currency, confidence_score,
+                     processing_time_seconds, file_path)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+
+                # Insert each row
+                for row in rows:
+                    cursor.execute(insert_query, (
+                        row['bill_id'],
+                        row['file_name'],
+                        row['is_invoice'].lower() == 'true',  # Convert to boolean
+                        row['invoice_number'] if row['invoice_number'] else None,
+                        row['invoice_date'] if row['invoice_date'] else None,
+                        row['service_description'] if row['service_description'] else None,
+                        row['service_period'] if row['service_period'] else None,
+                        row['line_items_summary'] if row['line_items_summary'] else None,
+                        float(row['total_amount']) if row['total_amount'] else None,
+                        float(row['tax_amount']) if row['tax_amount'] else None,
+                        float(row['net_amount']) if row['net_amount'] else None,
+                        row['currency'] if row['currency'] else None,
+                        float(row['confidence_score']) if row['confidence_score'] else None,
+                        float(row['processing_time_seconds']) if row['processing_time_seconds'] else None,
+                        row['file_path'] if row['file_path'] else None
+                    ))
+
+                conn.commit()
+
+                logger.info(f"Successfully inserted {len(rows)} rows into Snowflake")
+                return True
+
+        except Exception as e:
+            logger.error(f"Error uploading CSV to Snowflake: {str(e)}")
             return False
