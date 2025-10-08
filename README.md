@@ -43,10 +43,11 @@ Google Sheets (PO/PR list)
    ```
 
 2. Configure the following credentials in `.env`:
-   - NetSuite API credentials (OAuth 1.0)
+   - NetSuite account ID and Okta URL (for RPA downloads)
    - OpenAI API key
    - Snowflake database connection
    - Google Service Account JSON file path
+   - Invoice storage location (Google Drive path)
 
 ### 2. Install Dependencies
 
@@ -65,7 +66,16 @@ playwright install chromium
 4. Set the path in your `.env` file
 5. Share your Google Sheets with the service account email
 
-### 4. Database Initialization
+### 4. Configure Invoice Storage Location
+
+Set the Google Drive path for invoice storage in `.env`:
+```env
+INVOICES_DIR=G:\.shortcut-targets-by-id\YOUR_ID\FP&A Internal\Automation\Accruals\Bills
+```
+
+All downloaded invoices will be saved to this Google Drive folder, organized by bill ID.
+
+### 5. Database Initialization
 
 The system will automatically create required Snowflake tables on first run:
 - `bills` - NetSuite bill data

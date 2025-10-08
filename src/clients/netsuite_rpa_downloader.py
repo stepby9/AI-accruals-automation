@@ -51,17 +51,29 @@ class NetSuiteRPADownloader:
 
         logger.info(f"NetSuite RPA Downloader initialized (headless={headless}, manual_login={manual_login})")
 
-    def download_bill_invoices(self, bill_id: str) -> List[str]:
+    def download_bill_invoices(self, bill_id: str, skip_if_exists: bool = True) -> List[str]:
         """
         Download all invoice files attached to a NetSuite bill
 
         Args:
             bill_id: The NetSuite bill ID
+            skip_if_exists: If True, skip download if bill folder already exists with files
 
         Returns:
             List of file paths to downloaded files
         """
         try:
+            # Check if bill folder already exists with files
+            if skip_if_exists:
+                bill_dir = INVOICES_DIR / bill_id
+                if bill_dir.exists() and any(bill_dir.iterdir()):
+                    logger.info(f"✓ Invoices for bill {bill_id} have already been downloaded")
+                    logger.info(f"  Folder: {bill_dir}")
+                    # Return existing files
+                    existing_files = [str(f) for f in bill_dir.iterdir() if f.is_file()]
+                    logger.info(f"  Found {len(existing_files)} existing file(s)")
+                    return existing_files
+
             logger.info(f"Starting download process for bill {bill_id}")
 
             with sync_playwright() as p:
@@ -118,20 +130,43 @@ class NetSuiteRPADownloader:
             logger.error(f"Error downloading files for bill {bill_id}: {str(e)}")
             return []
 
-    def download_multiple_bills(self, bill_ids: List[str]) -> Dict[str, List[str]]:
+    def download_multiple_bills(self, bill_ids: List[str], skip_if_exists: bool = True) -> Dict[str, List[str]]:
         """
         Download invoice files for multiple bills in a single browser session
 
         Args:
             bill_ids: List of NetSuite bill IDs
+            skip_if_exists: If True, skip bills that already have downloaded files
 
         Returns:
             Dictionary mapping bill_id to list of downloaded file paths
         """
         results = {}
+        bills_to_download = []
+        skipped_bills = []
 
         try:
             logger.info(f"Starting batch download for {len(bill_ids)} bills")
+
+            # Check which bills already have files
+            if skip_if_exists:
+                for bill_id in bill_ids:
+                    bill_dir = INVOICES_DIR / bill_id
+                    if bill_dir.exists() and any(bill_dir.iterdir()):
+                        logger.info(f"✓ Invoices for bill {bill_id} already downloaded - skipping")
+                        existing_files = [str(f) for f in bill_dir.iterdir() if f.is_file()]
+                        results[bill_id] = existing_files
+                        skipped_bills.append(bill_id)
+                    else:
+                        bills_to_download.append(bill_id)
+            else:
+                bills_to_download = bill_ids
+
+            if not bills_to_download:
+                logger.info("All bills already have downloaded files. No downloads needed.")
+                return results
+
+            logger.info(f"Downloading {len(bills_to_download)} new bills (skipped {len(skipped_bills)})")
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=self.headless)
@@ -144,8 +179,8 @@ class NetSuiteRPADownloader:
                     browser.close()
                     return results
 
-                # Download files for each bill
-                for bill_id in bill_ids:
+                # Download files for each bill that needs downloading
+                for bill_id in bills_to_download:
                     try:
                         bill_url = self._get_bill_url(bill_id)
                         logger.info(f"Processing bill {bill_id}: {bill_url}")
@@ -166,13 +201,19 @@ class NetSuiteRPADownloader:
 
                 # Print summary
                 total_files = sum(len(files) for files in results.values())
+                new_downloads = sum(len(files) for bill_id, files in results.items() if bill_id in bills_to_download)
                 logger.info("=" * 60)
-                logger.info(f"Batch download completed: {len(results)} bills processed")
-                logger.info(f"Total files downloaded: {total_files}")
+                logger.info(f"Batch download completed:")
+                logger.info(f"  Total bills: {len(bill_ids)}")
+                logger.info(f"  Already downloaded (skipped): {len(skipped_bills)}")
+                logger.info(f"  Newly downloaded: {len(bills_to_download)}")
+                logger.info(f"  Total files: {total_files}")
+                logger.info(f"  New files downloaded: {new_downloads}")
                 logger.info("=" * 60)
 
                 for bill_id, files in results.items():
-                    logger.info(f"\nBill {bill_id}: {len(files)} file(s)")
+                    status = "✓ Skipped" if bill_id in skipped_bills else "✓ Downloaded"
+                    logger.info(f"\n{status} - Bill {bill_id}: {len(files)} file(s)")
                     for file_path in files:
                         logger.info(f"  - {os.path.basename(file_path)}")
 

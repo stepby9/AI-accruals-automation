@@ -6,12 +6,22 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).parent.parent
 LOGS_DIR = BASE_DIR / "logs"
-DATA_DIR = BASE_DIR / "data"
-INVOICES_DIR = DATA_DIR / "invoices"
 
+# Use Google Drive folder for invoices (configured via .env)
+INVOICES_DIR_OVERRIDE = os.getenv("INVOICES_DIR")
+
+if INVOICES_DIR_OVERRIDE:
+    INVOICES_DIR = Path(INVOICES_DIR_OVERRIDE)
+else:
+    # Fallback to local folder if not configured (for testing)
+    INVOICES_DIR = BASE_DIR / "data" / "invoices"
+
+# Create required directories
 LOGS_DIR.mkdir(exist_ok=True)
-DATA_DIR.mkdir(exist_ok=True)
-INVOICES_DIR.mkdir(exist_ok=True)
+
+# Only create INVOICES_DIR if it's the local fallback or if specified path doesn't exist yet
+if not INVOICES_DIR_OVERRIDE or not INVOICES_DIR.exists():
+    INVOICES_DIR.mkdir(parents=True, exist_ok=True)
 
 class NetSuiteConfig:
     ACCOUNT_ID = os.getenv("NETSUITE_ACCOUNT_ID")

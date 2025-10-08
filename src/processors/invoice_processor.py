@@ -19,6 +19,7 @@ logger = setup_logger(__name__)
 @dataclass
 class InvoiceData:
     bill_id: str
+    is_invoice: bool  # Whether document is actually an invoice
     invoice_number: Optional[str]
     invoice_date: Optional[date]  # Use date instead of datetime
     service_description: Optional[str]
@@ -282,9 +283,10 @@ class InvoiceProcessor:
                 amount = item.get('amount', 'N/A')
                 items_text.append(f"{desc}: {amount}")
             line_items_summary = "; ".join(items_text)
-        
+
         return InvoiceData(
             bill_id=bill_id,
+            is_invoice=data_dict.get('is_invoice', False),  # Default to False, require explicit confirmation
             invoice_number=data_dict.get('invoice_number'),
             invoice_date=self._parse_date(data_dict.get('invoice_date')),
             service_description=data_dict.get('service_description'),

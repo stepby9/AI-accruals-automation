@@ -32,8 +32,8 @@ ENV/
 logs/*.log
 *.log
 
-# Data files
-data/invoices/
+# Data files (invoices now saved to Google Drive via INVOICES_DIR in .env)
+data/invoices/  # Local fallback folder (if not using Google Drive)
 data/cache/
 
 # IDE

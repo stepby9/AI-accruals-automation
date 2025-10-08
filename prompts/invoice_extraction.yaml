@@ -16,9 +16,12 @@ system_prompt: |
   Extract structured data from invoices and return valid JSON with only factually verified information.
 
 user_prompt_template: |
-  Extract ONLY the following essential information from the invoice and return it as valid JSON:
+  First, determine if this document is actually an INVOICE (not a purchase order, receipt, quote, contract, or other document type).
+
+  Then extract ONLY the following essential information and return it as valid JSON:
 
   {{
+      "is_invoice": true or false - whether this document is actually an invoice/bill,
       "invoice_number": "string - invoice number or null if not found",
       "invoice_date": "YYYY-MM-DD or null if not found",
       "service_description": "string - brief description of services/products/line items or null if unclear",
@@ -33,6 +36,11 @@ user_prompt_template: |
       "currency": "string - currency code (USD, EUR, etc., sometimes can be found as a currency symbol) or null if not stated",
       "confidence_score": "number between 0 and 1 - confidence in extraction accuracy"
   }}
+
+  DOCUMENT CLASSIFICATION RULES:
+  1. Set is_invoice to TRUE only if the document is clearly an invoice or bill requesting payment
+  2. Set is_invoice to FALSE for: purchase orders, receipts, quotes, contracts, packing slips, blank pages, unreadable documents
+  3. If other extracted fields are N/A, most probably this is not an invoice
 
   CRITICAL EXTRACTION RULES - ONLY EXTRACT FACTUAL DATA:
   1. DO NOT infer, assume, or guess any values not explicitly stated in the attachment

@@ -3,7 +3,8 @@
 Simple Invoice Processing Test Script
 
 Usage:
-    python test_invoices.py                           # Uses ./test_invoices/ folder
+    python test_invoices.py                           # Uses Google Drive Bills folder (from .env)
+    python test_invoices.py 26358814                  # Tests specific bill folder
     python test_invoices.py path/to/invoice/folder    # Uses specified folder
 """
 
@@ -50,24 +51,50 @@ def test_invoices():
                 return
         
         # Get folder path
+        from config.settings import INVOICES_DIR
+
         if len(sys.argv) > 1:
-            folder_path = Path(sys.argv[1])
+            arg = sys.argv[1]
+            # Check if argument is a bill ID (numeric) or a path
+            if arg.isdigit():
+                # Argument is a bill ID - use Google Drive folder
+                folder_path = INVOICES_DIR / arg
+                print(f"Testing bill {arg} from Google Drive")
+            else:
+                # Argument is a custom path
+                folder_path = Path(arg)
+                print(f"Testing custom folder: {folder_path}")
         else:
-            folder_path = Path("test_invoices")
-        
+            # No argument - use the main Google Drive Bills folder
+            folder_path = INVOICES_DIR
+            print(f"Testing all bills from Google Drive")
+
         if not folder_path.exists():
             print(f"❌ Folder not found: {folder_path}")
-            print(f"   Create the folder and put some invoice files (PDF, Excel, Word, images) in it")
+            if len(sys.argv) > 1 and sys.argv[1].isdigit():
+                print(f"   Bill {sys.argv[1]} has no downloaded invoices yet")
+                print(f"   Download files first: python test_rpa_download.py {sys.argv[1]}")
+            else:
+                print(f"   Make sure INVOICES_DIR is configured in .env")
             return
         
         # Find invoice files
         invoice_extensions = ['.pdf', '.xlsx', '.xls', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.txt']
         invoice_files = set()  # Use set to avoid duplicates
-        
-        for ext in invoice_extensions:
-            invoice_files.update(folder_path.glob(f"*{ext}"))
-            invoice_files.update(folder_path.glob(f"*{ext.upper()}"))
-        
+
+        # Check if we're in a specific bill folder or the main Bills folder
+        if folder_path == INVOICES_DIR and len(sys.argv) <= 1:
+            # Main Bills folder - search all bill subdirectories
+            print(f"Searching all bill folders in {folder_path}...")
+            for ext in invoice_extensions:
+                invoice_files.update(folder_path.glob(f"*/*{ext}"))
+                invoice_files.update(folder_path.glob(f"*/*{ext.upper()}"))
+        else:
+            # Specific bill folder or custom path - search just this folder
+            for ext in invoice_extensions:
+                invoice_files.update(folder_path.glob(f"*{ext}"))
+                invoice_files.update(folder_path.glob(f"*{ext.upper()}"))
+
         invoice_files = list(invoice_files)  # Convert back to list
         
         if not invoice_files:
@@ -78,7 +105,12 @@ def test_invoices():
         print(f"📁 Found {len(invoice_files)} files in {folder_path}")
         print("📄 Files detected:")
         for file in invoice_files:
-            print(f"   - {file.name} ({file.suffix})")
+            # Show bill ID if scanning all bills
+            if folder_path == INVOICES_DIR and len(sys.argv) <= 1:
+                bill_id = file.parent.name
+                print(f"   - Bill {bill_id}: {file.name} ({file.suffix})")
+            else:
+                print(f"   - {file.name} ({file.suffix})")
         print("=" * 60)
         
         # Initialize processor 
@@ -91,20 +123,27 @@ def test_invoices():
         
         # Process each file
         for i, file_path in enumerate(invoice_files, 1):
-            print(f"\n🧾 [{i}/{len(invoice_files)}] Processing: {file_path.name}")
+            # Determine bill ID
+            if folder_path == INVOICES_DIR and len(sys.argv) <= 1:
+                bill_id = file_path.parent.name
+                print(f"\n🧾 [{i}/{len(invoice_files)}] Processing Bill {bill_id}: {file_path.name}")
+            else:
+                bill_id = folder_path.name if len(sys.argv) > 1 and sys.argv[1].isdigit() else f"TEST_{i:03d}"
+                print(f"\n🧾 [{i}/{len(invoice_files)}] Processing: {file_path.name}")
             print("-" * 40)
-            
+
             import time
             start_time = time.time()
-            
+
             try:
                 # Process invoice
-                result = processor.process_invoice(str(file_path), f"TEST_{i:03d}")
+                result = processor.process_invoice(str(file_path), bill_id)
                 
                 processing_time = time.time() - start_time
                 
                 if result:
                     print("✅ SUCCESS!")
+                    print(f"   Is invoice: {result.is_invoice}")
                     print(f"   Invoice #: {result.invoice_number or 'N/A'}")
                     print(f"   Date: {result.invoice_date or 'N/A'}")
                     print(f"   Amount: {result.total_amount or 'N/A'} {result.currency or 'N/A'}")
