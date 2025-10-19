@@ -235,6 +235,12 @@ def test_invoices():
 
                     # Add to CSV results (only if is_invoice = True)
                     newly_processed_count += 1
+
+                    # Add tab prefix to service_period to force Excel to treat it as text
+                    service_period_value = result.service_period or ''
+                    if service_period_value:
+                        service_period_value = f"'{service_period_value}"
+
                     results_data.append({
                         'bill_id': result.bill_id,
                         'file_name': file_path.name,
@@ -242,7 +248,7 @@ def test_invoices():
                         'invoice_number': result.invoice_number or '',
                         'invoice_date': result.invoice_date or '',
                         'service_description': result.service_description or '',
-                        'service_period': result.service_period or '',
+                        'service_period': service_period_value,
                         'line_items_summary': result.line_items_summary or '',
                         'total_amount': result.total_amount or '',
                         'tax_amount': result.tax_amount or '',

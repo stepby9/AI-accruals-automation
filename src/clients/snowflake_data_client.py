@@ -427,7 +427,7 @@ class SnowflakeDataClient:
                 # Read CSV and insert rows directly
                 logger.info(f"Reading CSV file: {csv_file_path}")
 
-                with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
+                with open(csv_file_path, 'r', encoding='utf-8-sig') as csvfile:
                     reader = csv_module.DictReader(csvfile)
                     rows = list(reader)
 
@@ -435,6 +435,8 @@ class SnowflakeDataClient:
                     logger.info("No rows to upload (CSV is empty)")
                     return True
 
+                # Debug: print first row keys to verify column names
+                logger.info(f"CSV columns: {list(rows[0].keys())}")
                 logger.info(f"Inserting {len(rows)} rows into ACCRUALS_AUTOMATION_EXTRACTED_INVOICES table")
 
                 # Prepare insert query
@@ -449,6 +451,11 @@ class SnowflakeDataClient:
 
                 # Insert each row
                 for row in rows:
+                    # Strip leading single quote from service_period if present (Excel text formatting)
+                    service_period = row['service_period'] if row['service_period'] else None
+                    if service_period and service_period.startswith("'"):
+                        service_period = service_period[1:]
+
                     cursor.execute(insert_query, (
                         row['bill_id'],
                         row['file_name'],
@@ -456,7 +463,7 @@ class SnowflakeDataClient:
                         row['invoice_number'] if row['invoice_number'] else None,
                         row['invoice_date'] if row['invoice_date'] else None,
                         row['service_description'] if row['service_description'] else None,
-                        row['service_period'] if row['service_period'] else None,
+                        service_period,
                         row['line_items_summary'] if row['line_items_summary'] else None,
                         float(row['total_amount']) if row['total_amount'] else None,
                         float(row['tax_amount']) if row['tax_amount'] else None,
