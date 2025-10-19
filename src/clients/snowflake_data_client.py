@@ -327,6 +327,37 @@ class SnowflakeDataClient:
             logger.error(f"Snowflake connection test failed: {str(e)}")
             return False
 
+    def get_bills_to_download(self) -> list:
+        """
+        Get list of bill IDs that need invoice downloads from Snowflake view
+        ACCRUALS_AUTOMATION_BILLS_TO_DOWNLOAD
+
+        Returns:
+            List of bill IDs (strings)
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+
+                query = """
+                    SELECT DISTINCT BILL_TRANSACTION_ID
+                    FROM PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_BILLS_TO_DOWNLOAD
+                    WHERE BILL_TRANSACTION_ID IS NOT NULL
+                    ORDER BY BILL_TRANSACTION_ID
+                """
+
+                cursor.execute(query)
+                rows = cursor.fetchall()
+
+                bill_ids = [str(row[0]) for row in rows]
+
+                logger.info(f"Loaded {len(bill_ids)} bill IDs from Snowflake view")
+                return bill_ids
+
+        except Exception as e:
+            logger.error(f"Error fetching bills to download from Snowflake: {str(e)}")
+            return []
+
     def get_processed_invoices(self) -> set:
         """
         Get all (bill_id, file_name) pairs that have already been processed
@@ -336,15 +367,35 @@ class SnowflakeDataClient:
             Set of tuples (bill_id, file_name) representing processed invoices
         """
         try:
+            logger.info("Connecting to Snowflake to fetch processed invoices...")
             with self._get_connection() as conn:
                 cursor = conn.cursor()
 
-                query = """
-                    SELECT DISTINCT bill_id, file_name
+                # First check if table has any data
+                count_query = """
+                    SELECT COUNT(*)
                     FROM PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_EXTRACTED_INVOICES
                 """
 
+                logger.info("Checking table record count...")
+                cursor.execute(count_query)
+                count = cursor.fetchone()[0]
+                logger.info(f"Table has {count} records")
+
+                if count == 0:
+                    logger.info("Table is empty, no processed invoices to load")
+                    return set()
+
+                # If table has data, fetch distinct bill_id and file_name pairs
+                query = """
+                    SELECT bill_id, file_name
+                    FROM PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_EXTRACTED_INVOICES
+                """
+
+                logger.info("Executing query to get processed invoices...")
                 cursor.execute(query)
+
+                logger.info("Fetching results...")
                 rows = cursor.fetchall()
 
                 processed_invoices = {(str(row[0]), str(row[1])) for row in rows}

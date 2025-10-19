@@ -118,27 +118,80 @@ class InvoiceProcessor:
             return None
 
     def _process_excel(self, file_path: str, bill_id: str) -> Optional[InvoiceData]:
+        """
+        Process Excel file by converting it to PDF first, then using Vision AI
+        This gives much better results than text extraction
+        """
         try:
-            import pandas as pd
-            
-            # Read all sheets
-            excel_data = pd.read_excel(file_path, sheet_name=None)
-            
-            text_content = "Excel file contents:\n"
-            for sheet_name, df in excel_data.items():
-                text_content += f"\n--- Sheet: {sheet_name} ---\n"
-                text_content += df.to_string(max_rows=50)
-            
-            return self._analyze_with_openai(
-                text_content=text_content,
-                image_data=None,
-                file_path=file_path,
-                bill_id=bill_id
-            )
-            
+            logger.info(f"Converting Excel to PDF for better AI processing: {file_path}")
+
+            # Convert Excel to PDF using win32com (Windows only)
+            import os
+            import win32com.client
+            from pathlib import Path
+
+            excel_path = Path(file_path).resolve()
+
+            # Create temporary PDF path in same directory
+            pdf_path = excel_path.parent / f"{excel_path.stem}_temp.pdf"
+
+            # Convert using Excel COM automation
+            excel = None
+            try:
+                excel = win32com.client.Dispatch("Excel.Application")
+                excel.Visible = False
+                excel.DisplayAlerts = False
+
+                # Open workbook
+                wb = excel.Workbooks.Open(str(excel_path))
+
+                # Export as PDF (all sheets)
+                wb.ExportAsFixedFormat(0, str(pdf_path))  # 0 = xlTypePDF
+
+                # Close workbook
+                wb.Close(False)
+
+                logger.info(f"Excel converted to PDF: {pdf_path}")
+
+                # Now process the PDF using the existing PDF processor
+                result = self._process_pdf(str(pdf_path), bill_id)
+
+                # Clean up temporary PDF
+                if pdf_path.exists():
+                    pdf_path.unlink()
+                    logger.info(f"Cleaned up temporary PDF: {pdf_path}")
+
+                return result
+
+            finally:
+                if excel:
+                    excel.Quit()
+
         except Exception as e:
             logger.error(f"Error processing Excel {file_path}: {str(e)}")
-            return None
+            logger.warning("Falling back to text extraction method")
+
+            # Fallback to text extraction if PDF conversion fails
+            try:
+                import pandas as pd
+                excel_data = pd.read_excel(file_path, sheet_name=None)
+
+                text_content = "Excel file contents:\n\n"
+                for sheet_name, df in excel_data.items():
+                    text_content += f"=== SHEET: {sheet_name} ===\n"
+                    df_limited = df.head(100)
+                    text_content += df_limited.to_csv(index=False)
+                    text_content += "\n"
+
+                return self._analyze_with_openai(
+                    text_content=text_content,
+                    image_data=None,
+                    file_path=file_path,
+                    bill_id=bill_id
+                )
+            except Exception as e2:
+                logger.error(f"Fallback text extraction also failed: {str(e2)}")
+                return None
 
     def _process_word(self, file_path: str, bill_id: str) -> Optional[InvoiceData]:
         try:

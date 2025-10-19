@@ -11,6 +11,7 @@ Usage:
 import sys
 import os
 import csv
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -23,6 +24,9 @@ from src.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 def test_invoices():
+    # Start timing
+    script_start_time = time.time()
+
     try:
         # Import and validate OpenAI first
         import openai
@@ -137,7 +141,7 @@ def test_invoices():
         newly_processed_count = 0
 
         # Clear CSV file at start of each run (fresh start)
-        with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+        with open(csv_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
             fieldnames = ['bill_id', 'file_name', 'is_invoice', 'invoice_number', 'invoice_date',
                          'service_description', 'service_period', 'line_items_summary',
                          'total_amount', 'tax_amount', 'net_amount', 'currency', 'confidence_score',
@@ -181,7 +185,6 @@ def test_invoices():
                 logger.info(f"Skipping already processed invoice: Bill {bill_id}, File: {file_path.name}")
                 continue
 
-            import time
             start_time = time.time()
 
             try:
@@ -296,9 +299,18 @@ def test_invoices():
                     'file_path': str(file_path)
                 })
 
+        # Calculate and display total execution time
+        total_execution_time = time.time() - script_start_time
+        minutes = int(total_execution_time // 60)
+        seconds = int(total_execution_time % 60)
+
+        # Calculate summary stats
+        total_files_found = len(invoice_files)
+        skipped_count = total_files_found - newly_processed_count
+
         # Write results to CSV only if there are new results
         if newly_processed_count > 0:
-            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+            with open(csv_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
                 fieldnames = ['bill_id', 'file_name', 'is_invoice', 'invoice_number', 'invoice_date',
                              'service_description', 'service_period', 'line_items_summary',
                              'total_amount', 'tax_amount', 'net_amount', 'currency', 'confidence_score',
@@ -308,21 +320,29 @@ def test_invoices():
                 writer.writerows(results_data)
 
             print("\n" + "=" * 60)
-            print(f"📊 Results saved to CSV: {csv_path.absolute()}")
-            print(f"   Newly processed invoices: {newly_processed_count}")
+            print(f"📊 Processing Summary:")
+            print(f"  Total files found: {total_files_found}")
+            print(f"  Already processed (skipped): {skipped_count}")
+            print(f"  Newly processed: {newly_processed_count}")
+            print(f"  Total execution time: {minutes}m {seconds}s")
+            print("=" * 60)
+            print(f"\n✓ Results saved to CSV: {csv_path.absolute()}")
             print(f"\n💡 Next step: Review the CSV and then upload to Snowflake using:")
             print(f"   python upload_to_snowflake.py")
-            logger.info(f"Saved {newly_processed_count} newly processed invoices to CSV")
+            logger.info(f"Summary: {total_files_found} files found, {skipped_count} skipped, {newly_processed_count} newly processed in {minutes}m {seconds}s")
 
         else:
             print("\n" + "=" * 60)
-            print(f"✓ No new invoices to process")
-            print(f"   All invoices already in Snowflake database")
-            logger.info(f"No new invoices processed - all already in Snowflake")
+            print(f"📊 Processing Summary:")
+            print(f"  Total files found: {total_files_found}")
+            print(f"  Already processed (skipped): {skipped_count}")
+            print(f"  Newly processed: {newly_processed_count}")
+            print(f"  Total execution time: {minutes}m {seconds}s")
+            print("=" * 60)
+            print(f"\n✓ All invoices already in Snowflake database")
+            logger.info(f"Summary: {total_files_found} files found, all already in Snowflake, completed in {minutes}m {seconds}s")
 
-        print("=" * 60)
         print("🎯 Test completed!")
-        logger.info("Invoice processing test completed")
         
     except ImportError as e:
         print(f"❌ Import error: {str(e)}")

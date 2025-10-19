@@ -9,9 +9,11 @@ and navigates to bill pages to download attached files.
 from playwright.sync_api import sync_playwright, Page, Download
 import time
 import os
+import csv
 from pathlib import Path
 from typing import List, Optional, Dict
 from dataclasses import dataclass
+from datetime import datetime
 
 from config.settings import NetSuiteConfig, INVOICES_DIR
 from src.utils.logger import setup_logger
@@ -144,6 +146,10 @@ class NetSuiteRPADownloader:
         results = {}
         bills_to_download = []
         skipped_bills = []
+        failed_downloads = []  # Track bills that failed or had 0 files
+
+        # Start timing
+        start_time = time.time()
 
         try:
             logger.info(f"Starting batch download for {len(bill_ids)} bills")
@@ -181,23 +187,62 @@ class NetSuiteRPADownloader:
 
                 # Download files for each bill that needs downloading
                 for bill_id in bills_to_download:
-                    try:
-                        bill_url = self._get_bill_url(bill_id)
-                        logger.info(f"Processing bill {bill_id}: {bill_url}")
+                    max_retries = 3
+                    retry_count = 0
+                    success = False
 
-                        page.goto(bill_url, wait_until="domcontentloaded", timeout=60000)
-                        time.sleep(2)
-                        page.wait_for_load_state("networkidle", timeout=30000)
+                    while retry_count < max_retries and not success:
+                        try:
+                            if retry_count > 0:
+                                logger.info(f"Retry {retry_count}/{max_retries} for bill {bill_id}")
+                                time.sleep(3)  # Wait before retry
 
-                        downloaded_files = self._download_files_from_page(page, bill_id)
-                        results[bill_id] = downloaded_files
+                            bill_url = self._get_bill_url(bill_id)
+                            logger.info(f"Processing bill {bill_id}: {bill_url}")
 
-                        logger.info(f"Downloaded {len(downloaded_files)} files for bill {bill_id}")
+                            # Navigate with retry logic
+                            page.goto(bill_url, wait_until="domcontentloaded", timeout=60000)
+                            time.sleep(2)  # Wait for page to stabilize
+                            page.wait_for_load_state("networkidle", timeout=30000)
 
-                    except Exception as e:
-                        logger.error(f"Error processing bill {bill_id}: {str(e)}")
-                        results[bill_id] = []
-                        continue
+                            downloaded_files = self._download_files_from_page(page, bill_id)
+                            results[bill_id] = downloaded_files
+
+                            logger.info(f"✓ Downloaded {len(downloaded_files)} files for bill {bill_id}")
+                            success = True
+
+                            # Wait 1 second before next bill to avoid rate limiting
+                            time.sleep(1)
+
+                        except Exception as e:
+                            retry_count += 1
+                            error_msg = str(e)
+                            logger.error(f"Error processing bill {bill_id} (attempt {retry_count}/{max_retries}): {error_msg}")
+
+                            if retry_count >= max_retries:
+                                logger.error(f"❌ Failed to download bill {bill_id} after {max_retries} attempts")
+                                results[bill_id] = []
+                                failed_downloads.append({
+                                    'bill_id': bill_id,
+                                    'error': error_msg,
+                                    'files_downloaded': 0
+                                })
+                            else:
+                                logger.info(f"⏳ Will retry bill {bill_id}...")
+
+                    # Check if download was successful but resulted in 0 files
+                    if success and bill_id in results and len(results[bill_id]) == 0:
+                        failed_downloads.append({
+                            'bill_id': bill_id,
+                            'error': 'No files found',
+                            'files_downloaded': 0
+                        })
+
+                # Calculate total time
+                end_time = time.time()
+                total_time = end_time - start_time
+                minutes = int(total_time // 60)
+                seconds = int(total_time % 60)
 
                 # Print summary
                 total_files = sum(len(files) for files in results.values())
@@ -207,8 +252,10 @@ class NetSuiteRPADownloader:
                 logger.info(f"  Total bills: {len(bill_ids)}")
                 logger.info(f"  Already downloaded (skipped): {len(skipped_bills)}")
                 logger.info(f"  Newly downloaded: {len(bills_to_download)}")
+                logger.info(f"  Failed downloads: {len(failed_downloads)}")
                 logger.info(f"  Total files: {total_files}")
                 logger.info(f"  New files downloaded: {new_downloads}")
+                logger.info(f"  Total time: {minutes}m {seconds}s")
                 logger.info("=" * 60)
 
                 for bill_id, files in results.items():
@@ -217,12 +264,13 @@ class NetSuiteRPADownloader:
                     for file_path in files:
                         logger.info(f"  - {os.path.basename(file_path)}")
 
-                # Wait for user before closing browser
-                logger.info("\nBrowser will stay open so you can inspect...")
-                logger.info("Press ENTER when you want to close the browser...")
-                input()
+                # Save failed downloads to CSV if any
+                if failed_downloads:
+                    self._save_failed_downloads_csv(failed_downloads)
 
+                # Close browser automatically
                 browser.close()
+                logger.info("\n✓ Browser closed automatically")
 
             return results
 
@@ -420,6 +468,35 @@ class NetSuiteRPADownloader:
         except Exception as e:
             logger.error(f"Error saving download for bill {bill_id}: {str(e)}")
             return None
+
+    def _save_failed_downloads_csv(self, failed_downloads: List[Dict]) -> None:
+        """
+        Save failed downloads to a CSV file for review
+
+        Args:
+            failed_downloads: List of dicts with bill_id, error, and files_downloaded
+        """
+        try:
+            # Create CSV in the invoices directory
+            csv_path = INVOICES_DIR / f"failed_downloads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['bill_id', 'error', 'files_downloaded', 'bill_url']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+                writer.writeheader()
+                for failed in failed_downloads:
+                    writer.writerow({
+                        'bill_id': failed['bill_id'],
+                        'error': failed['error'],
+                        'files_downloaded': failed['files_downloaded'],
+                        'bill_url': self._get_bill_url(failed['bill_id'])
+                    })
+
+            logger.info(f"\n⚠️  Saved {len(failed_downloads)} failed downloads to: {csv_path}")
+
+        except Exception as e:
+            logger.error(f"Error saving failed downloads CSV: {str(e)}")
 
     def test_connection(self) -> bool:
         """

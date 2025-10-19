@@ -25,7 +25,7 @@ user_prompt_template: |
       "invoice_number": "string - invoice number or null if not found",
       "invoice_date": "YYYY-MM-DD or null if not found",
       "service_description": "string - invoice subject or brief description of services/products/line items or null if unclear",
-      "service_period": "string - service period as text (e.g. when the service was provided, can be name of month, dates, start/from date to end/to date, e.g. 'January 2025', 'Q1 2024', '2024-2025') or null if not found",
+      "service_period": "string - service period as text (e.g. when the service was provided, can be name of month, dates, start/from date to end/to date, can be included in the file name,e.g. 'January 2025', 'Q1 2024', '2024-2025', '2025.07') or null if not found",
       "line_items": [
           {{
               "description": "string - line item description",
@@ -52,14 +52,14 @@ user_prompt_template: |
   5. If information is unclear, partially visible, or ambiguous, set the field to null rather than guessing
   6. If amounts are shown without currency symbols, extract the number but set currency to null unless currency is explicitly stated elsewhere in the document
   7. If dates are in non-standard formats, only convert if you can definitively determine the correct date from context within the document
-  8. For service_period, if it is not explicitly stated, see if there is start date and end date mentioned, and take them as service period, otherwise set to null
+  8. For service_period, if it is not explicitly stated, see if it is part of the file name, or if there is start date and end date mentioned, and take them as service period, otherwise set to null
   9. If the invoice is in a foreign language, translate it to English but ONLY translate text that is clearly visible
   10. For confidence_score, heavily penalize any extraction that required inference or assumption
   11. For line_items, extract ONLY non-tax service/product line items. DO NOT include tax lines in the line_items array. If you see items labeled "消費税" (consumption tax), "Tax 10%", "VAT", "GST" - those are tax items and should be EXCLUDED from line_items and instead added to tax_amount.
   12. For total_amount, extract the final/gross amount (the total amount to pay, INCLUDING tax). This is usually the largest number on the invoice.
   13. For tax_amount, look VERY CAREFULLY for tax amounts which can appear in TWO ways: (a) as a separate tax line AFTER the subtotal, OR (b) as a LINE ITEM within the itemized list (e.g., "消費税 10%: 250,000"). Common tax labels: "Tax", "VAT", "消費税", "税額", "内消費税", "消費税（10％)", "TVA", "IVA", "GST", "Sales Tax". If tax appears as a line item, extract it from the line items and sum all tax amounts. Extract the COMPLETE tax amount.
   14. For net_amount, sum all non-tax line_items OR look for subtotal line ("Subtotal", "小計"). This must equal sum of line_items (excluding any tax lines). If not found, calculate as total_amount - tax_amount. VERIFY: net_amount + tax_amount = total_amount.
-  15. Always return all information in English
+  15. Always return all information in English. You are not allowed to return any non-English text, always translate to English.
   16. Return only valid JSON, no additional text or explanations
 
   EXAMPLES OF WHAT NOT TO DO:
