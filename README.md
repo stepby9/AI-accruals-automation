@@ -101,17 +101,22 @@ SNOWFLAKE_ACCOUNT=your_account
 SNOWFLAKE_WAREHOUSE=your_warehouse
 SNOWFLAKE_DATABASE=PSEDM_FINANCE_PROD
 SNOWFLAKE_SCHEMA=EDM_GTM_FPA
+SNOWFLAKE_ROLE=your_role
 
 # OpenAI
 OPENAI_API_KEY=sk-...
 
 # NetSuite (for RPA)
-NETSUITE_URL=https://your-account.app.netsuite.com
-OKTA_USERNAME=your_okta_email
-OKTA_PASSWORD=your_okta_password
+NETSUITE_ACCOUNT_ID=your_account_id
+NETSUITE_OKTA_URL=https://your-company.okta.com/home/netsuite/xxx/xxx
+NETSUITE_RPA_HEADLESS=true
+
+# Application Settings
+LOG_LEVEL=INFO
 
 # Google Drive (for invoice storage)
 INVOICES_DIR=G:\path\to\your\google\drive\Bills
+CSV_RESULTS_DIR=G:\path\to\your\google\drive\Results
 ```
 
 ### Performance Settings
@@ -164,6 +169,13 @@ PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_RELATED_BILLS_FOR_ANALYSIS_IN
 PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_BILLS_TO_DOWNLOAD
 ```
 
+**Important**: The `ACCRUALS_AUTOMATION_PO_ANALYSIS_INPUT` view pre-filters data based on business rules:
+- Excludes GL accounts: 4550, 6080, 6090, 6092
+- Excludes PO lines with unbilled amounts < $5,000 USD
+- Only includes PO lines that need accrual analysis
+
+This means all PO lines received by the Python application are already filtered and ready for AI analysis.
+
 ### Output Tables (Append)
 
 ```sql
@@ -205,13 +217,11 @@ temperature: 0.1
 
 Changes take effect immediately (no code changes needed).
 
-### Adjust Business Rules
+### Business Rules
 
-Edit `src/processors/accrual_engine.py`:
-```python
-EXCLUDED_GL_ACCOUNTS = ['4550', '6080', '6090', '6092']
-MIN_BALANCE_USD = 5000
-```
+Business rules (GL account exclusions, minimum balance thresholds) are **pre-applied in the Snowflake view** `ACCRUALS_AUTOMATION_PO_ANALYSIS_INPUT`. See the Snowflake Tables section above for details.
+
+To modify these rules, update the Snowflake view definition, not the Python code.
 
 ## Troubleshooting
 

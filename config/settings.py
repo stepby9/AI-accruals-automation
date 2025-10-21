@@ -34,15 +34,10 @@ if not INVOICES_DIR_OVERRIDE or not INVOICES_DIR.exists():
 
 class NetSuiteConfig:
     ACCOUNT_ID = os.getenv("NETSUITE_ACCOUNT_ID")
-    TOKEN_ID = os.getenv("NETSUITE_TOKEN_ID")
-    TOKEN_SECRET = os.getenv("NETSUITE_TOKEN_SECRET")
-    CONSUMER_KEY = os.getenv("NETSUITE_CONSUMER_KEY")
-    CONSUMER_SECRET = os.getenv("NETSUITE_CONSUMER_SECRET")
 
     # RPA / Browser Automation settings
     OKTA_URL = os.getenv("NETSUITE_OKTA_URL")  # Okta SSO URL for NetSuite
     RPA_HEADLESS = os.getenv("NETSUITE_RPA_HEADLESS", "true").lower() == "true"
-    USE_RPA_DOWNLOADS = os.getenv("NETSUITE_USE_RPA_DOWNLOADS", "true").lower() == "true"
 
 class OpenAIConfig:
     API_KEY = os.getenv("OPENAI_API_KEY")
@@ -58,14 +53,5 @@ class SnowflakeConfig:
     WAREHOUSE = os.getenv("SNOWFLAKE_WAREHOUSE")
     ROLE = os.getenv("SNOWFLAKE_ROLE")
 
-class GoogleConfig:
-    SERVICE_ACCOUNT_KEY = os.getenv("GOOGLE_SERVICE_ACCOUNT_KEY")
-    DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
-
 class AppConfig:
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-    MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
-    BATCH_SIZE = int(os.getenv("BATCH_SIZE", "50"))
-    MIN_ACCRUAL_AMOUNT_USD = float(os.getenv("MIN_ACCRUAL_AMOUNT_USD", "5000"))
-    
-    EXCLUDED_GL_ACCOUNTS = ["4550", "6080", "6090", "6092"]

@@ -4,7 +4,7 @@ Accrual Decision Engine - Uses AI to analyze if accruals are needed for PO lines
 
 import json
 import yaml
-from typing import Dict, List, Optional
+from typing import Dict, List
 from dataclasses import dataclass
 from datetime import datetime, date
 from pathlib import Path
@@ -36,11 +36,11 @@ class AccrualEngine:
     """
     Analyzes PO lines to determine if accruals are needed
     Uses AI to apply business rules and make decisions
-    """
 
-    # Business rules as constants
-    EXCLUDED_GL_ACCOUNTS = ['4550', '6080', '6090', '6092']
-    MIN_BALANCE_USD = 5000
+    Note: Business rules (GL account exclusions, minimum balance thresholds) are
+    pre-applied in the Snowflake view ACCRUALS_AUTOMATION_PO_ANALYSIS_INPUT,
+    so all data received here is already filtered and ready for AI analysis.
+    """
 
     def __init__(self, current_month: str = None):
         """
@@ -103,25 +103,6 @@ class AccrualEngine:
         start_time = time.time()
 
         try:
-            # Quick checks - apply business rules first
-            quick_check = self._apply_quick_rules(po_line)
-            if quick_check:
-                processing_time = time.time() - start_time
-                logger.info(f"PO {po_number}: {quick_check['reasoning']} (Quick rule, {processing_time:.1f}s)")
-                return AccrualDecision(
-                    po_number=po_number,
-                    needs_accrual=False,
-                    accrual_amount=0.0,
-                    reasoning=quick_check['reasoning'],
-                    short_summary=quick_check['reasoning'],
-                    confidence_score=1.0,
-                    analyzed_at=datetime.now(),
-                    processing_time_seconds=processing_time,
-                    tokens_input=0,
-                    tokens_output=0,
-                    tokens_total=0
-                )
-
             # Prepare data for AI analysis
             analysis_data = self._prepare_data_for_ai(po_line, related_bills)
 
@@ -168,36 +149,6 @@ class AccrualEngine:
                 tokens_output=0,
                 tokens_total=0
             )
-
-    def _apply_quick_rules(self, po_line: Dict) -> Optional[Dict]:
-        """
-        Apply quick business rules that don't need AI analysis
-
-        Returns:
-            Dict with reasoning if rule applies, None otherwise
-        """
-        # Rule 1: Check GL account exclusions
-        gl_account = str(po_line.get('GL_ACCOUNT_NAME', ''))
-        for excluded in self.EXCLUDED_GL_ACCOUNTS:
-            if excluded in gl_account:
-                return {
-                    'reasoning': f"No accrual needed - GL account {gl_account} is excluded (contains {excluded})"
-                }
-
-        # Rule 2: Check minimum balance (assuming foreign currency is close to USD for simplicity)
-        # TODO: Add currency conversion if needed
-        unbilled_amount = po_line.get('UNBILLED_AMOUNT_FOREIGN', 0)
-        if unbilled_amount is not None:
-            try:
-                unbilled = float(unbilled_amount)
-                if unbilled < self.MIN_BALANCE_USD:
-                    return {
-                        'reasoning': f"No accrual needed - Unbilled amount ({unbilled:,.2f}) < minimum threshold ({self.MIN_BALANCE_USD:,.2f})"
-                    }
-            except (ValueError, TypeError):
-                pass
-
-        return None
 
     def _prepare_data_for_ai(self, po_line: Dict, related_bills: List[Dict]) -> Dict:
         """
