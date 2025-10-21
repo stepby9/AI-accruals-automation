@@ -9,6 +9,7 @@ python main.py
 ```
 
 This provides a simple terminal interface to access all automation functions.
+You can also run it using START_AUTOMATION batch Windows batch file.
 
 ## Main Menu Options
 
@@ -124,13 +125,41 @@ CSV_RESULTS_DIR=G:\path\to\your\google\drive\Results
 **Parallel Workers:**
 - Default: 3 workers
 - Can be adjusted in main menu prompts
-- Higher = faster, but more resource-intensive
-- Recommended: 3-5 workers
+- Recommended: 3-10 workers (depending on volume)
+- Maximum practical: 20-30 workers (diminishing returns beyond this)
 
-**OpenAI Rate Limits:**
-- GPT-4o: ~10,000 requests/minute
-- 3 workers = ~180 requests/minute (safe)
-- 5 workers = ~300 requests/minute (safe)
+**Processing Times (Average):**
+- Invoice extraction: ~10 seconds per invoice
+- Accrual analysis: ~10 seconds per PO line
+- With 3 workers: ~18 invoices/minute or ~18 PO lines/minute
+- With 10 workers: ~60 invoices/minute or ~60 PO lines/minute
+
+**Token Usage & Costs (GPT-4o):**
+
+*Invoice Extraction:*
+- Average: ~3,700 tokens per invoice (3,300 input + 400 output)
+- Cost: ~$0.0123 per invoice ($2.50/1M input, $10.00/1M output)
+- 100 invoices: ~$1.23
+- 1,000 invoices: ~$12.30
+
+*Accrual Analysis:*
+- Average: ~5,500 tokens per PO line (5,000 input + 500 output)
+- Cost: ~$0.0175 per PO line
+- 100 PO lines: ~$1.75
+- 1,000 PO lines: ~$17.50
+
+*Total Monthly Cost Example:*
+- 500 invoices + 500 PO lines = ~$14.90 per month
+
+**OpenAI Rate Limits (Tier-based):**
+
+Your limits depend on your OpenAI usage tier:
+- **Tier 1** (new accounts): 500 requests/min, 30K tokens/min
+- **Tier 2** ($50+ spent): 5,000 requests/min, 450K tokens/min
+- **Tier 3** ($1,000+ spent): 10,000 requests/min, 10M tokens/min
+
+With default settings (3 workers), you'll stay well under limits for any tier.
+Check your tier at: https://platform.openai.com/settings/organization/limits
 
 ## Output Files
 
