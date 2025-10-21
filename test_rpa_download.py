@@ -48,22 +48,20 @@ def test_multiple_bills(bill_ids: list, headless: bool = False):
     print(f"{'='*60}\n")
 
     downloader = NetSuiteRPADownloader(headless=headless, manual_login=True)
-    results = downloader.download_multiple_bills(bill_ids)
+    results, stats = downloader.download_multiple_bills(bill_ids)
 
-    print(f"\n{'='*60}")
-    print(f"Download Results:")
-    print(f"{'='*60}")
-
-    total_files = 0
-    for bill_id, files in results.items():
-        print(f"\nBill {bill_id}: {len(files)} file(s)")
-        for file_path in files:
-            print(f"  - {os.path.basename(file_path)}")
-        total_files += len(files)
-
-    print(f"\n{'='*60}")
-    print(f"✓ Total: {total_files} files downloaded from {len(bill_ids)} bills")
-    print(f"{'='*60}\n")
+    # Print final summary at the very end for quick visibility
+    print(f"\n{'='*80}")
+    print(f"FINAL SUMMARY")
+    print(f"{'='*80}")
+    print(f"  Total bills: {stats['total_bills']}")
+    print(f"  Already downloaded (skipped): {stats['skipped_bills']}")
+    print(f"  Newly downloaded: {stats['newly_downloaded']}")
+    print(f"  Failed downloads: {stats['failed_downloads']}")
+    print(f"  Total files: {stats['total_files']}")
+    print(f"  New files downloaded: {stats['new_files']}")
+    print(f"  Total time: {stats['total_time_formatted']}")
+    print(f"{'='*80}\n")
 
     return results
 

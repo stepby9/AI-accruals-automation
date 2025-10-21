@@ -15,7 +15,7 @@ from typing import List, Optional, Dict
 from dataclasses import dataclass
 from datetime import datetime
 
-from config.settings import NetSuiteConfig, INVOICES_DIR
+from config.settings import NetSuiteConfig, INVOICES_DIR, CSV_RESULTS_DIR
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -132,7 +132,7 @@ class NetSuiteRPADownloader:
             logger.error(f"Error downloading files for bill {bill_id}: {str(e)}")
             return []
 
-    def download_multiple_bills(self, bill_ids: List[str], skip_if_exists: bool = True) -> Dict[str, List[str]]:
+    def download_multiple_bills(self, bill_ids: List[str], skip_if_exists: bool = True) -> tuple[Dict[str, List[str]], Dict]:
         """
         Download invoice files for multiple bills in a single browser session
 
@@ -141,7 +141,9 @@ class NetSuiteRPADownloader:
             skip_if_exists: If True, skip bills that already have downloaded files
 
         Returns:
-            Dictionary mapping bill_id to list of downloaded file paths
+            Tuple of (results_dict, stats_dict) where:
+            - results_dict: Dictionary mapping bill_id to list of downloaded file paths
+            - stats_dict: Dictionary with download statistics
         """
         results = {}
         bills_to_download = []
@@ -170,7 +172,17 @@ class NetSuiteRPADownloader:
 
             if not bills_to_download:
                 logger.info("All bills already have downloaded files. No downloads needed.")
-                return results
+                stats = {
+                    'total_bills': len(bill_ids),
+                    'skipped_bills': len(skipped_bills),
+                    'newly_downloaded': 0,
+                    'failed_downloads': 0,
+                    'total_files': sum(len(files) for files in results.values()),
+                    'new_files': 0,
+                    'total_time_seconds': 0,
+                    'total_time_formatted': '0m 0s'
+                }
+                return results, stats
 
             logger.info(f"Downloading {len(bills_to_download)} new bills (skipped {len(skipped_bills)})")
 
@@ -183,7 +195,17 @@ class NetSuiteRPADownloader:
                 if not self._login_to_netsuite(page):
                     logger.error("Failed to login to NetSuite")
                     browser.close()
-                    return results
+                    stats = {
+                        'total_bills': len(bill_ids),
+                        'skipped_bills': len(skipped_bills),
+                        'newly_downloaded': 0,
+                        'failed_downloads': 0,
+                        'total_files': sum(len(files) for files in results.values()),
+                        'new_files': 0,
+                        'total_time_seconds': 0,
+                        'total_time_formatted': '0m 0s'
+                    }
+                    return results, stats
 
                 # Download files for each bill that needs downloading
                 for bill_id in bills_to_download:
@@ -272,11 +294,33 @@ class NetSuiteRPADownloader:
                 browser.close()
                 logger.info("\n✓ Browser closed automatically")
 
-            return results
+            # Prepare statistics dictionary
+            stats = {
+                'total_bills': len(bill_ids),
+                'skipped_bills': len(skipped_bills),
+                'newly_downloaded': len(bills_to_download),
+                'failed_downloads': len(failed_downloads),
+                'total_files': total_files,
+                'new_files': new_downloads,
+                'total_time_seconds': int(total_time),
+                'total_time_formatted': f"{minutes}m {seconds}s"
+            }
+
+            return results, stats
 
         except Exception as e:
             logger.error(f"Error in batch download: {str(e)}")
-            return results
+            stats = {
+                'total_bills': len(bill_ids) if bill_ids else 0,
+                'skipped_bills': 0,
+                'newly_downloaded': 0,
+                'failed_downloads': 0,
+                'total_files': 0,
+                'new_files': 0,
+                'total_time_seconds': 0,
+                'total_time_formatted': '0m 0s'
+            }
+            return results, stats
 
     def _login_to_netsuite(self, page: Page) -> bool:
         """
@@ -477,8 +521,8 @@ class NetSuiteRPADownloader:
             failed_downloads: List of dicts with bill_id, error, and files_downloaded
         """
         try:
-            # Create CSV in the invoices directory
-            csv_path = INVOICES_DIR / f"failed_downloads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            # Create CSV in the CSV results directory
+            csv_path = CSV_RESULTS_DIR / f"failed_downloads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
             with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
                 fieldnames = ['bill_id', 'error', 'files_downloaded', 'bill_url']

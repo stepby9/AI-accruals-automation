@@ -482,3 +482,217 @@ class SnowflakeDataClient:
         except Exception as e:
             logger.error(f"Error uploading CSV to Snowflake: {str(e)}")
             return False
+
+    def upload_accrual_analysis_to_snowflake(self, csv_file_path: str) -> bool:
+        """
+        APPEND accrual analysis CSV to Snowflake table ACCRUALS_AUTOMATION_ANALYSIS_RESULTS
+        (Does not replace existing data, only adds new records)
+
+        Args:
+            csv_file_path: Path to CSV file with accrual analysis results
+
+        Returns:
+            True if upload successful, False otherwise
+        """
+        try:
+            import csv as csv_module
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Read CSV and insert rows directly
+                logger.info(f"Reading CSV file: {csv_file_path}")
+
+                with open(csv_file_path, 'r', encoding='utf-8-sig') as csvfile:
+                    reader = csv_module.DictReader(csvfile)
+                    rows = list(reader)
+
+                if not rows:
+                    logger.info("No rows to upload (CSV is empty)")
+                    return True
+
+                # Debug: print first row keys to verify column names
+                logger.info(f"CSV columns: {list(rows[0].keys())}")
+                logger.info(f"Inserting {len(rows)} rows into ACCRUALS_AUTOMATION_ANALYSIS_RESULTS table")
+
+                # Prepare insert query
+                insert_query = """
+                    INSERT INTO PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_ANALYSIS_RESULTS
+                    (lookup_key, po_number, vendor_name, gl_account, description,
+                     total_amount, billed_amount, unbilled_amount, currency,
+                     needs_accrual, accrual_amount, short_summary, reasoning, confidence_score,
+                     analysis_month, analyzed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+
+                # Insert each row
+                for row in rows:
+                    # Strip leading single quote from analysis_month if present (Excel text formatting)
+                    analysis_month = row['analysis_month'] if row['analysis_month'] else None
+                    if analysis_month and analysis_month.startswith("'"):
+                        analysis_month = analysis_month[1:]
+
+                    cursor.execute(insert_query, (
+                        row['lookup_key'] if row['lookup_key'] else None,
+                        row['po_number'] if row['po_number'] else None,
+                        row['vendor_name'] if row['vendor_name'] else None,
+                        row['gl_account'] if row['gl_account'] else None,
+                        row['description'] if row['description'] else None,
+                        float(row['total_amount']) if row['total_amount'] else None,
+                        float(row['billed_amount']) if row['billed_amount'] else None,
+                        float(row['unbilled_amount']) if row['unbilled_amount'] else None,
+                        row['currency'] if row['currency'] else None,
+                        row['needs_accrual'].lower() == 'true',  # Convert to boolean
+                        float(row['accrual_amount']) if row['accrual_amount'] else None,
+                        row['short_summary'] if row['short_summary'] else None,
+                        row['reasoning'] if row['reasoning'] else None,
+                        float(row['confidence_score']) if row['confidence_score'] else None,
+                        analysis_month,
+                        row['analyzed_at'] if row['analyzed_at'] else None
+                    ))
+
+                conn.commit()
+
+                logger.info(f"Successfully inserted {len(rows)} rows into Snowflake")
+                return True
+
+        except Exception as e:
+            logger.error(f"Error uploading accrual analysis CSV to Snowflake: {str(e)}")
+            return False
+
+    def get_po_lines_for_accrual_analysis(self) -> List[Dict]:
+        """
+        Get all PO lines that need accrual analysis from Snowflake view
+        ACCRUALS_AUTOMATION_PO_ANALYSIS_INPUT
+
+        Returns:
+            List of dicts with PO line data
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor(DictCursor)
+
+                query = """
+                    SELECT
+                        LOOKUP_KEY,
+                        PO_NUMBER,
+                        "Vendor Name" as vendor_name,
+                        GL_ACCOUNT_NAME,
+                        "Start Date" as start_date,
+                        "End Date" as end_date,
+                        "Vendor Delivery Date" as vendor_delivery_date,
+                        REQUESTING_EMPLOYEE,
+                        MEMO,
+                        NOTES_TO_PROCUREMENT,
+                        DESCRIPTION,
+                        FOREIGN_CURRENCY,
+                        "Total Amount - Foreign Currency" as total_amount_foreign,
+                        "Billed Amount- Foreign Currency" as billed_amount_foreign,
+                        "Unbilled Amount - Foreign Currency" as unbilled_amount_foreign
+                    FROM PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_PO_ANALYSIS_INPUT
+                """
+
+                cursor.execute(query)
+                rows = cursor.fetchall()
+
+                po_lines = [dict(row) for row in rows]
+
+                logger.info(f"Loaded {len(po_lines)} PO lines for accrual analysis from Snowflake")
+                return po_lines
+
+        except Exception as e:
+            logger.error(f"Error fetching PO lines for accrual analysis: {str(e)}")
+            return []
+
+    def get_all_related_bills(self) -> Dict[str, List[Dict]]:
+        """
+        Get ALL related bills and invoice data from
+        ACCRUALS_AUTOMATION_RELATED_BILLS_FOR_ANALYSIS_INPUT view
+        and group them by PO_NUMBER for efficient in-memory lookup
+
+        Returns:
+            Dict mapping PO_NUMBER to list of bill line items
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor(DictCursor)
+
+                query = """
+                    SELECT
+                        PO_NUMBER,
+                        BILL_NUMBER,
+                        BILL_TRANSACTION_ID,
+                        ACCOUNT_NAME,
+                        POSTING_PERIOD,
+                        CALENDAR_PERIOD,
+                        BILL_MEMO,
+                        BILL_LINE_MEMO,
+                        BILL_CURRENCY,
+                        BILL_AMOUNT_FOREIGN,
+                        RELATED_INVOICE_NAME,
+                        RELATED_INVOICE_DATE,
+                        RELATED_INVOICE_SERVICE_DESCRIPTION,
+                        RELATED_INVOICE_SERVICE_PERIOD,
+                        RELATED_INVOICE_LINE_ITEMS_SUMMARY,
+                        RELATED_INVOICE_TOTAL_NET_AMOUNT
+                    FROM PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_RELATED_BILLS_FOR_ANALYSIS_INPUT
+                    ORDER BY PO_NUMBER, POSTING_PERIOD DESC, BILL_TRANSACTION_ID
+                """
+
+                logger.info("Fetching all related bills from Snowflake...")
+                cursor.execute(query)
+                rows = cursor.fetchall()
+
+                # Group bills by PO_NUMBER
+                bills_by_po = {}
+                for row in rows:
+                    bill_dict = dict(row)
+                    po_number = bill_dict.get('PO_NUMBER')
+
+                    if po_number not in bills_by_po:
+                        bills_by_po[po_number] = []
+
+                    bills_by_po[po_number].append(bill_dict)
+
+                total_bills = len(rows)
+                total_pos = len(bills_by_po)
+                logger.info(f"Loaded {total_bills} bill line items for {total_pos} POs from Snowflake")
+
+                return bills_by_po
+
+        except Exception as e:
+            logger.error(f"Error fetching all related bills: {str(e)}")
+            return {}
+
+    def get_analyzed_po_lines_for_month(self, analysis_month: str) -> set:
+        """
+        Get set of LOOKUP_KEYs that have already been analyzed for a specific month
+
+        Args:
+            analysis_month: The month to check (e.g., "October 2025")
+
+        Returns:
+            Set of LOOKUP_KEYs that have already been analyzed
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+
+                query = """
+                    SELECT DISTINCT LOOKUP_KEY
+                    FROM PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_ANALYSIS_RESULTS
+                    WHERE ANALYSIS_MONTH = %s
+                """
+
+                cursor.execute(query, (analysis_month,))
+                rows = cursor.fetchall()
+
+                analyzed_keys = {row[0] for row in rows if row[0]}
+
+                logger.info(f"Found {len(analyzed_keys)} PO lines already analyzed for {analysis_month}")
+
+                return analyzed_keys
+
+        except Exception as e:
+            logger.error(f"Error fetching analyzed PO lines for month {analysis_month}: {str(e)}")
+            return set()
