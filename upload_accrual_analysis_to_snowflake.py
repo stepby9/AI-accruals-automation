@@ -36,7 +36,7 @@ def main():
 
         if not csv_path.exists():
             print(f"\n❌ CSV file not found: {csv_path}")
-            print(f"   Run the accrual analysis first: python test_accrual_analysis.py")
+            print(f"   Run the accrual analysis first: python run_accrual_analysis.py")
             return
 
         print(f"\n📄 CSV file: {csv_path}")

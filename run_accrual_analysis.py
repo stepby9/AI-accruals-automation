@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Accrual Analysis Test Script
+Accrual Analysis Script
 
 Usage:
-    python test_accrual_analysis.py                           # Analyze all PO lines (3 workers)
-    python test_accrual_analysis.py PO12345                   # Analyze specific PO
-    python test_accrual_analysis.py --month "Feb 2025"        # Specify analysis month
-    python test_accrual_analysis.py --workers 5               # Use 5 parallel workers
-    python test_accrual_analysis.py --month "Oct 2025" --workers 5  # Combine options
+    python run_accrual_analysis.py                           # Analyze all PO lines (3 workers)
+    python run_accrual_analysis.py PO12345                   # Analyze specific PO
+    python run_accrual_analysis.py --month "Feb 2025"        # Specify analysis month
+    python run_accrual_analysis.py --workers 5               # Use 5 parallel workers
+    python run_accrual_analysis.py --month "Oct 2025" --workers 5  # Combine options
 """
 
 import sys
@@ -138,7 +138,7 @@ def process_single_po(po_line: dict, bills_by_po: dict, accrual_engine: AccrualE
     return (po_line, decision, analysis_time)
 
 
-def test_accrual_analysis(po_number: str = None, analysis_month: str = None, max_workers: int = 3):
+def run_accrual_analysis(po_number: str = None, analysis_month: str = None, max_workers: int = 3):
     """
     Run accrual analysis on PO lines
 
@@ -368,4 +368,4 @@ if __name__ == "__main__":
         else:
             i += 1
 
-    test_accrual_analysis(po_number=po_number, analysis_month=analysis_month, max_workers=max_workers)
+    run_accrual_analysis(po_number=po_number, analysis_month=analysis_month, max_workers=max_workers)

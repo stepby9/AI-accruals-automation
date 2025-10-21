@@ -1,233 +1,292 @@
-# Finance Accruals Automation
+# Accruals Automation - Production Guide
 
-Automates the manual monthly accruals process for finance teams by integrating NetSuite, OpenAI, and Google Sheets to analyze thousands of PO lines and determine accrual needs.
+## Quick Start
 
-## Overview
-
-This system replaces a manual process that involves:
-1. Checking thousands of PO lines/PRs each month
-2. Manually searching NetSuite for vendor details and bills
-3. Opening and reading invoice PDFs to understand services
-4. Applying business rules to determine accrual amounts
-5. Recording decisions in Google Sheets
-
-## Features
-
-- **Incremental Data Sync**: Only processes new bills and invoices to save ~90% on API costs after first month
-- **RPA File Downloads**: Uses browser automation (Playwright) to download invoice files from NetSuite reliably
-- **Multi-format Invoice Processing**: Handles PDF, Excel, Word, and image invoices
-- **AI-Powered Analysis**: Uses OpenAI GPT-4 Vision to extract invoice data and make accrual decisions
-- **Business Rules Engine**: Implements complex accrual logic and GL account exclusions
-- **Google Sheets Integration**: Reads PO/PR lists and updates with accrual decisions
-- **Comprehensive Logging**: Full audit trail for debugging and compliance
-
-## Architecture
-
-```
-Google Sheets (PO/PR list) 
-→ NetSuite API (fetch PO/PR/Bill data)
-→ Download Invoices
-→ OpenAI API (extract invoice details)
-→ Snowflake Database (store all data)
-→ AI analyze and decide accruals
-→ Update Google Sheets with decisions
-```
-
-## Setup
-
-### 1. Environment Setup
-
-1. Copy `.env.example` to `.env` and fill in your credentials:
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Configure the following credentials in `.env`:
-   - NetSuite account ID and Okta URL (for RPA downloads)
-   - OpenAI API key
-   - Snowflake database connection
-   - Google Service Account JSON file path
-   - Invoice storage location (Google Drive path)
-
-### 2. Install Dependencies
+Run the main menu application:
 
 ```bash
-pip install -r requirements.txt
-
-# Install Playwright browser for RPA downloads
-playwright install chromium
+python main.py
 ```
 
-### 3. Google Service Account Setup
+This provides a simple terminal interface to access all automation functions.
 
-1. Create a service account in Google Cloud Console
-2. Enable Google Sheets API and Google Drive API
-3. Download the service account JSON file
-4. Set the path in your `.env` file
-5. Share your Google Sheets with the service account email
+## Main Menu Options
 
-### 4. Configure Invoice Storage Location
+### 🔹 Invoice Processing
 
-Set the Google Drive path for invoice storage in `.env`:
+**1. Download invoices from NetSuite (RPA)**
+- Downloads invoice files from NetSuite bills
+- Uses browser automation (Playwright)
+- Skips already-downloaded bills automatically
+- Saves files to Google Drive folder
+
+**2. Extract invoice data with AI**
+- Processes downloaded invoices with GPT-4o Vision
+- Extracts: invoice number, date, amounts, service period, etc.
+- Supports: PDF, Excel, Word, images
+- Skips already-processed invoices automatically
+- Parallel processing (default: 3 workers)
+
+**3. Upload extracted invoices to Snowflake**
+- Uploads CSV results to Snowflake
+- Table: `ACCRUALS_AUTOMATION_EXTRACTED_INVOICES`
+- APPEND mode (doesn't replace existing data)
+
+### 🔹 Accrual Analysis
+
+**4. Run accrual analysis for a month**
+- Analyzes PO lines to determine accrual needs
+- Interactive month selection
+- Skips already-analyzed PO lines for that month
+- Uses GPT-4o for decision-making
+- Parallel processing (default: 3 workers)
+
+**5. Upload accrual analysis results to Snowflake**
+- Uploads CSV results to Snowflake
+- Table: `ACCRUALS_AUTOMATION_ANALYSIS_RESULTS`
+- APPEND mode (doesn't replace existing data)
+
+### 🔹 Utilities
+
+**6. Test NetSuite connection**
+- Tests RPA browser automation
+- Opens browser window to verify login
+
+**7. View logs**
+- Shows recent log files
+- Location: `logs/` directory
+
+**8. Check Snowflake connection**
+- Tests database connectivity
+- Verifies credentials
+
+## Typical Monthly Workflow
+
+### Option 1: Full Monthly Process (All Steps)
+
+```
+1. Download invoices from NetSuite          → Downloads new bills
+2. Extract invoice data with AI             → Processes new invoices
+3. Upload extracted invoices to Snowflake   → Saves to database
+4. Run accrual analysis for a month         → Analyzes PO lines
+5. Upload accrual analysis to Snowflake     → Saves results
+```
+
+### Option 2: Re-run Analysis Only (If PO data changed)
+
+```
+4. Run accrual analysis for a month         → Only new/changed POs
+5. Upload accrual analysis to Snowflake     → Append new results
+```
+
+### Option 3: Process New Invoices Only
+
+```
+1. Download invoices from NetSuite          → New bills only
+2. Extract invoice data with AI             → New invoices only
+3. Upload extracted invoices to Snowflake   → Append to database
+```
+
+## Configuration
+
+### Environment Variables (.env file)
+
+Required for production:
+
 ```env
-INVOICES_DIR=G:\.shortcut-targets-by-id\YOUR_ID\FP&A Internal\Automation\Accruals\Bills
+# Snowflake
+SNOWFLAKE_USER=your_username
+SNOWFLAKE_PASSWORD=your_password
+SNOWFLAKE_ACCOUNT=your_account
+SNOWFLAKE_WAREHOUSE=your_warehouse
+SNOWFLAKE_DATABASE=PSEDM_FINANCE_PROD
+SNOWFLAKE_SCHEMA=EDM_GTM_FPA
+
+# OpenAI
+OPENAI_API_KEY=sk-...
+
+# NetSuite (for RPA)
+NETSUITE_URL=https://your-account.app.netsuite.com
+OKTA_USERNAME=your_okta_email
+OKTA_PASSWORD=your_okta_password
+
+# Google Drive (for invoice storage)
+INVOICES_DIR=G:\path\to\your\google\drive\Bills
 ```
 
-All downloaded invoices will be saved to this Google Drive folder, organized by bill ID.
+### Performance Settings
 
-### 5. Database Initialization
+**Parallel Workers:**
+- Default: 3 workers
+- Can be adjusted in main menu prompts
+- Higher = faster, but more resource-intensive
+- Recommended: 3-5 workers
 
-The system will automatically create required Snowflake tables on first run:
-- `bills` - NetSuite bill data
-- `invoice_data` - AI-extracted invoice information
-- `accrual_decisions` - Monthly accrual decisions
-- `sync_tracking` - Incremental sync tracking
+**OpenAI Rate Limits:**
+- GPT-4o: ~10,000 requests/minute
+- 3 workers = ~180 requests/minute (safe)
+- 5 workers = ~300 requests/minute (safe)
 
-## Usage
+## Output Files
 
-### Basic Monthly Processing
+### CSV Results (data/results/)
 
-```bash
-python run_monthly_accruals.py YOUR_SPREADSHEET_ID
+```
+accrual_analysis_results.csv          - Monthly accrual analysis
+invoice_extraction_results.csv        - Extracted invoice data
+failed_downloads_YYYYMMDD_HHMMSS.csv  - Failed bill downloads
 ```
 
-### Advanced Options
+### Logs (logs/)
 
-```bash
-# Use custom worksheet name
-python run_monthly_accruals.py YOUR_SPREADSHEET_ID --worksheet "Monthly_POs"
-
-# Force complete data re-sync (expensive!)
-python run_monthly_accruals.py YOUR_SPREADSHEET_ID --force-full-sync
-
-# Validate configuration only
-python run_monthly_accruals.py --validate-only
-
-# Show processing statistics
-python run_monthly_accruals.py --stats
+```
+accruals_automation_YYYY-MM-DD.log    - Daily log file
 ```
 
-## Business Rules
+All logs include:
+- Timestamp
+- Module name
+- Log level (INFO, WARNING, ERROR)
+- Message
 
-The system implements the following accrual rules:
+## Snowflake Tables
 
-1. **GL Account Exclusions**: No accruals for accounts 4550, 6080, 6090, 6092
-2. **Minimum Threshold**: No accruals if remaining balance < $5,000 USD
-3. **No Negative Accruals**: For prepaid services
-4. **Monthly Calculation**: Estimates monthly accrual amounts
-5. **Previous Payments**: Considers if we already paid for previous months
+### Input Views (Read-Only)
 
-## Components
+```sql
+-- PO lines to analyze
+PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_PO_ANALYSIS_INPUT
 
-### Core Modules
+-- Related bills for PO lines
+PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_RELATED_BILLS_FOR_ANALYSIS_INPUT
 
-- `src/clients/netsuite_client.py` - NetSuite API integration
-- `src/clients/netsuite_rpa_downloader.py` - RPA browser automation for file downloads
-- `src/clients/sheets_client.py` - Google Sheets integration
-- `src/processors/invoice_processor.py` - AI-powered invoice processing
-- `src/engines/accrual_engine.py` - Business rules and AI decision engine
-- `src/utils/data_sync.py` - Incremental data synchronization
-- `src/database/models.py` - Snowflake database models
+-- Bills needing invoice download
+PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_BILLS_TO_DOWNLOAD
+```
 
-### Main Orchestrator
+### Output Tables (Append)
 
-- `run_monthly_accruals.py` - Main execution script
+```sql
+-- Extracted invoice data
+PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_EXTRACTED_INVOICES
 
-### Test Scripts
+-- Accrual analysis results
+PSEDM_FINANCE_PROD.EDM_GTM_FPA.ACCRUALS_AUTOMATION_ANALYSIS_RESULTS
+```
 
-- `test_invoices.py` - Test invoice processing with OpenAI
-- `test_rpa_download.py` - Test RPA file downloads from NetSuite
+## Incremental Processing
 
-### Documentation
+All functions are **incremental** - they only process new data:
 
-- `README.md` - Main project documentation
-- `RPA_SETUP.md` - Detailed RPA setup and troubleshooting guide
+✅ **Invoice Download**: Skips bills with existing folders
+✅ **Invoice Extraction**: Checks Snowflake for processed invoices
+✅ **Accrual Analysis**: Checks Snowflake for analyzed PO lines per month
 
-## Logging
+This means:
+- **Safe to re-run** without duplicating work
+- **Cost-efficient** - only pays for new AI calls
+- **Fast** - skips already-processed items
 
-Logs are written to:
-- Console (INFO level)
-- Files in `logs/` directory (configurable level)
+## Customization
 
-Log files are rotated daily with format: `{component}_{YYYYMMDD}.log`
+### Modify AI Prompts
 
-## Cost Optimization
+Edit `prompts/accrual_analysis.yaml` to customize:
+- System prompt (business rules)
+- User prompt template
+- Model (gpt-4o, gpt-5, etc.)
+- Temperature (if supported by model)
 
-The system uses incremental processing to minimize API costs:
+Example:
+```yaml
+model: "gpt-4o"
+temperature: 0.1
+```
 
-1. **NetSuite**: Only fetches new bills since last sync
-2. **OpenAI**: Only processes new invoices, reuses existing analysis
-3. **Database**: Tracks processing status to avoid duplicates
+Changes take effect immediately (no code changes needed).
 
-Expected cost savings: ~90% after first month of operation.
+### Adjust Business Rules
 
-## Error Handling
-
-The system includes comprehensive error handling:
-- Individual PO line failures don't stop batch processing
-- API failures are logged and retried where appropriate
-- Database transactions ensure data consistency
-- Backup sheets are created before making changes
-
-## Monitoring
-
-Use these commands to monitor the system:
-
-```bash
-# Check processing statistics
-python run_monthly_accruals.py --stats
-
-# Validate configuration
-python run_monthly_accruals.py --validate-only
-
-# View logs
-tail -f logs/run_monthly_accruals_$(date +%Y%m%d).log
+Edit `src/processors/accrual_engine.py`:
+```python
+EXCLUDED_GL_ACCOUNTS = ['4550', '6080', '6090', '6092']
+MIN_BALANCE_USD = 5000
 ```
 
 ## Troubleshooting
 
-### Common Issues
+### Issue: "No invoices downloaded"
+- Check: NetSuite credentials in .env
+- Check: VPN connection
+- Run: Option 6 (Test NetSuite connection)
 
-1. **NetSuite Authentication**: Ensure OAuth credentials are correct and token hasn't expired
-2. **OpenAI Rate Limits**: System includes built-in retry logic for rate limits
-3. **Google Sheets Permissions**: Service account must have edit access to spreadsheets
-4. **Snowflake Connection**: Check warehouse is running and credentials are valid
+### Issue: "Snowflake connection failed"
+- Check: Snowflake credentials in .env
+- Check: Network/VPN
+- Run: Option 8 (Check Snowflake connection)
 
-### Debug Mode
+### Issue: "OpenAI API error"
+- Check: OPENAI_API_KEY in .env
+- Check: API quota/billing
 
-Set `LOG_LEVEL=DEBUG` in `.env` for detailed logging.
+### Issue: "Invoice extraction failed"
+- Check logs for specific file errors
+- Some files may be corrupted/unsupported
+- Failed files logged but don't stop processing
 
-## Development
+## Support
 
-### Project Structure
+For issues:
+1. Check logs in `logs/` directory
+2. Look for ERROR or WARNING messages
+3. Check .env file configuration
+4. Verify network/VPN connectivity
 
+## Direct Script Execution (Advanced)
+
+If you prefer to run scripts directly instead of using the menu:
+
+```bash
+# Invoice Download
+python run_invoice_download.py                    # Download from Snowflake
+python run_invoice_download.py --test-connection  # Test connection
+python run_invoice_download.py BILL_ID            # Download specific bill
+
+# Invoice Extraction
+python run_invoice_extraction.py                  # Extract all invoices
+python run_invoice_extraction.py --workers 5      # Use 5 workers
+python run_invoice_extraction.py BILL_ID          # Extract specific bill
+
+# Accrual Analysis
+python run_accrual_analysis.py                    # Analyze all PO lines
+python run_accrual_analysis.py --month "Oct 2025" # Specific month
+python run_accrual_analysis.py --workers 5        # Use 5 workers
+
+# Upload to Snowflake
+python upload_to_snowflake.py                     # Upload invoices
+python upload_accrual_analysis_to_snowflake.py    # Upload analysis
 ```
-├── src/
-│   ├── clients/          # External API clients
-│   ├── processors/       # Document processing
-│   ├── engines/          # Business logic
-│   ├── database/         # Data models
-│   └── utils/           # Utilities and sync logic
-├── config/              # Configuration
-├── logs/               # Log files
-├── data/               # Data storage
-└── tests/              # Test files
-```
 
-### Adding New Features
+## Production Best Practices
 
-1. Follow the existing patterns for error handling and logging
-2. Add new configuration options to `config/settings.py`
-3. Update the database models if schema changes are needed
-4. Add appropriate tests
+1. **Run monthly** after PO/bill data is updated in NetSuite
+2. **Review CSV results** before uploading to Snowflake
+3. **Monitor logs** for errors or warnings
+4. **Keep .env file secure** (never commit to git)
+5. **Backup results** before re-running analysis
+6. **Use default workers (3)** unless you need more speed
+7. **Close browser** when running RPA downloads
 
-## Security
+## Security Notes
 
-- Never commit `.env` file or credentials to git
-- Use environment variables for all sensitive data
-- Service account has minimal required permissions
-- API keys are validated on startup
+⚠️ **Never share or commit:**
+- `.env` file (contains credentials)
+- API keys
+- Snowflake passwords
+- Okta credentials
 
-## License
-
-Internal use only.
+✅ **Safe to share:**
+- Python code
+- YAML configuration files
+- CSV results (after removing sensitive data)
+- Logs (after removing credentials)

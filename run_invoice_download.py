@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Test script for NetSuite RPA downloader
+Invoice Download Script - NetSuite RPA
 
 Usage:
-    python test_rpa_download.py                            # Download from Snowflake bill list (auto)
-    python test_rpa_download.py BILL_ID                    # Download files for a single bill
-    python test_rpa_download.py BILL_ID1 BILL_ID2 ...     # Download files for multiple bills
-    python test_rpa_download.py --test-connection          # Test connection only
+    python run_invoice_download.py                            # Download from Snowflake bill list (auto)
+    python run_invoice_download.py BILL_ID                    # Download files for a single bill
+    python run_invoice_download.py BILL_ID1 BILL_ID2 ...     # Download files for multiple bills
+    python run_invoice_download.py --test-connection          # Test connection only
 """
 
 import sys

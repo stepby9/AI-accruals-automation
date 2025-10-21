@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Simple Invoice Processing Test Script
+Invoice Extraction Script
 
 Usage:
-    python test_invoices.py                           # Uses Google Drive Bills folder (from .env)
-    python test_invoices.py 26358814                  # Tests specific bill folder
-    python test_invoices.py path/to/invoice/folder    # Uses specified folder
-    python test_invoices.py --workers 5               # Use 5 parallel workers (default: 3)
+    python run_invoice_extraction.py                           # Uses Google Drive Bills folder (from .env)
+    python run_invoice_extraction.py 26358814                  # Process specific bill folder
+    python run_invoice_extraction.py path/to/invoice/folder    # Uses specified folder
+    python run_invoice_extraction.py --workers 5               # Use 5 parallel workers (default: 3)
 """
 
 import sys
@@ -182,7 +182,7 @@ def process_single_invoice(file_path, bill_id, index, total, processor, processe
         return result_dict, False, False, processing_time
 
 
-def test_invoices(max_workers=3):
+def run_invoice_extraction(max_workers=3):
     # Start timing
     script_start_time = time.time()
 
@@ -244,7 +244,7 @@ def test_invoices(max_workers=3):
             print(f"❌ Folder not found: {folder_path}")
             if len(sys.argv) > 1 and sys.argv[1].isdigit():
                 print(f"   Bill {sys.argv[1]} has no downloaded invoices yet")
-                print(f"   Download files first: python test_rpa_download.py {sys.argv[1]}")
+                print(f"   Download files first: python run_invoice_download.py {sys.argv[1]}")
             else:
                 print(f"   Make sure INVOICES_DIR is configured in .env")
             return
@@ -428,5 +428,5 @@ if __name__ == "__main__":
     parser.add_argument("--workers", type=int, default=3, help="Number of parallel workers (default: 3)")
     args = parser.parse_args()
 
-    # Pass workers to test function
-    test_invoices(max_workers=args.workers)
+    # Pass workers to function
+    run_invoice_extraction(max_workers=args.workers)

@@ -35,7 +35,7 @@ def upload_csv_to_snowflake():
     # Check if CSV exists
     if not csv_path.exists():
         print(f"\n❌ CSV file not found: {csv_path}")
-        print(f"   Please run test_invoices.py first to generate results")
+        print(f"   Please run run_invoice_extraction.py first to generate results")
         logger.error(f"CSV file not found: {csv_path}")
         return
 
