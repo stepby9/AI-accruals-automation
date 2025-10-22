@@ -1,4 +1,4 @@
-# Accruals Automation - Production Guide
+# AI Accruals Automation - Production Guide
 
 ![BAT application](image.png)
 
