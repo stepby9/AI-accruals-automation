@@ -1,5 +1,6 @@
 # AI Accruals Automation - Production Guide
 
+
 ![BAT application](image.png)
 
 ## Quick Start
