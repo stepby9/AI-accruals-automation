@@ -1,5 +1,5 @@
 # AI Accruals Automation - Production Guide
-
+End-to-end process automation of accrual accounting using AI, python and RPA.
 
 ![BAT application](image.png)
 
